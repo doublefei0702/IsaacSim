@@ -60,6 +60,35 @@ sudo tailscale up
 
 在 Server 栏中输入 <你的Tailscale虚拟IP>，点击 Connect 即可享受低延迟的实时仿真画面。
 
+## 退出tailscale
+### 1. 仅仅是暂时断开连接（推荐）
+如果只是想暂时掐断这台服务器与虚拟局域网的连接，但保留登录状态，以便下次随时重连：
+
+```Bash
+sudo tailscale down
+```
+这相当于在手机上把 VPN 的开关拨到“关闭”。下次想用的时候，直接运行 sudo tailscale up 就能秒连，不需要重新扫码或登录。
+
+### 2. 彻底关闭后台进程
+如果跑完仿真了，想把刚才后台运行的 tailscaled 守护进程彻底杀掉，释放系统资源：
+
+```Bash
+sudo killall tailscaled
+```
+因为我们是用 & 强制挂在后台的，所以用 killall 是最直接有效的清理方式。
+
+### 3. 彻底注销并解绑设备
+如果你以后都不打算在这个云服务器（或者这个特定的 Docker 容器）上用 Tailscale 了，想把它从你的 Tailscale 账号设备列表里删掉：
+
+```Bash
+sudo tailscale logout
+```
+执行这个命令后，下次再启动就需要重新打开浏览器链接进行授权了。
+
+### 最常用的组合：
+通常跑完项目准备关机或退出容器时，直接执行一次 sudo killall tailscaled 就可以了，简单粗暴且干净。
+
+
 ##  常见问题排查 (FAQ)
 ### Q: 运行 sudo tailscale up 提示 failed to connect to local tailscaled？
 A: 这说明守护进程没有成功在后台运行。请重新执行本文的【步骤 1】和【步骤 2】。

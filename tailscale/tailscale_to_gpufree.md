@@ -1,4 +1,4 @@
-# 跨越云服务器端口限制：使用 Tailscale 部署 Isaac Sim WebRTC 推流
+# 跨越云服务器端口限制：使用 Tailscale 部署 Isaac Sim WebRTC 推流(无法起效，疑似容器不支持tun模式导致的？)
 
 ##  背景
 在云服务器上运行 NVIDIA Isaac Sim 时，官方的 WebRTC 方案默认需要开放 TCP 49100 和 UDP 47998 端口。
@@ -51,7 +51,7 @@ sudo tailscale up
 获取到 Tailscale IP 后，不需要再绑定云服务器的公网 IP。使用分配的虚拟内网 IP 启动 Isaac Sim 的 Headless 模式：
 
 ```Bash
-./runheadless.sh --/app/livestream/publicEndpointAddress=<你的Tailscale虚拟IP> --/app/livestream/port=49100
+./isaac-sim.streaming.sh --/app/livestream/publicEndpointAddress=<你的Tailscale虚拟IP> --/app/livestream/port=49100
 ```
 ### 5. 本地客户端连接
 确保你的本地电脑（Windows/Mac）也安装并登录了同一个 Tailscale 账号。

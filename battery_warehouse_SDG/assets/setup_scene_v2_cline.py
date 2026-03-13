@@ -16,8 +16,8 @@ from pxr import UsdGeom, Usd
 
 # 码垛生成区域
 PALLET_ZONES = [
-    {"x_range": (-4, 6), "y_range": (13, 16)},   # 区域1: -4<x<6, 13<y<16
-    {"x_range": (-6, 6), "y_range": (-18, -14)}  # 区域2: -6<x<6, -18<y<-14
+    {"x_range": (-10, 9), "y_range": (-11, -4.5)},   # 区域1: -10<x<9, -11<y<-4.5
+    {"x_range": (-5, 9), "y_range": (12.6, 16)}  # 区域2: -5<x<9, 12.6<y<16
 ]
 
 # 码垛规模参数
@@ -59,8 +59,7 @@ def populate_warehouse():
         "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.0/Isaac/Environments/Simple_Warehouse/Props//SM_CratePlasticNote_A_01.usd",
         "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.0/Isaac/Environments/Simple_Warehouse/Props//SM_CratePlastic_A_01.usd",
         "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.0/Isaac/Environments/Simple_Warehouse/Props//SM_CratePlastic_C_02.usd",
-        "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.0/Isaac/Environments/Simple_Warehouse/Props//SM_CratePlastic_E_02.usd",
-        "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.0/Isaac/Environments/Simple_Warehouse/Props//SM_CratePlastic_B_01.usd"
+        "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.0/Isaac/Environments/Simple_Warehouse/Props//SM_CratePlastic_E_02.usd"
     ]
     human_urls = [
         "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.0/Isaac/People/Characters/male_adult_construction_03/male_adult_construction_03.usd",

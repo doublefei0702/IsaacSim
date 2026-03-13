@@ -37,6 +37,10 @@ PALLET_CRATE_SPACING_X = 0.02  # 水平X方向间距
 PALLET_CRATE_SPACING_Y = 0.02  # 水平Y方向间距
 PALLET_LAYER_SPACING_Z = 0.5   # 垂直层间距
 
+# 货箱随机旋转参数
+PALLET_CRATE_RANDOM_ROTATION = True  # 是否启用货箱随机180°旋转
+PALLET_CRATE_ROTATION_PROBABILITY = 0.3  # 货箱180°旋转的概率
+
 # 码垛数量控制
 PALLET_NUM_PALLETS_ZONE1 = 3   # 区域1码垛数量
 PALLET_NUM_PALLETS_ZONE2 = 3   # 区域2码垛数量
@@ -201,11 +205,18 @@ def populate_warehouse():
                         abs_pos_x = pallet_center_x + pos_x
                         abs_pos_y = pallet_center_y + pos_y
                         
+                        # 计算货箱方向：随机180°旋转（绕Z轴）
+                        crate_orientation = [1.0, 0.0, 0.0, 0.0]  # 默认无旋转 (w=1, x=y=z=0)
+                        if PALLET_CRATE_RANDOM_ROTATION and random.random() < PALLET_CRATE_ROTATION_PROBABILITY:
+                            # 180°旋转：四元数 [w, x, y, z] = [0, 0, 0, 1]
+                            crate_orientation = [0.0, 0.0, 0.0, 1.0]
+                        
                         prim_path = f"/World/Generated/Pallet_{pallet_counter}/Crate_{crate_counter}"
                         prim = create_prim(
                             prim_path=prim_path,
-                            position=[pos_x, pos_y, z_height],  # 相对于父节点的位置
+                            translation=[pos_x, pos_y, z_height],  # 相对于父节点的位置
                             scale=[PALLET_CRATE_SCALE_XY, PALLET_CRATE_SCALE_XY, PALLET_CRATE_SCALE_Z],
+                            orientation=crate_orientation,
                             usd_path=selected_crate
                         )
                         

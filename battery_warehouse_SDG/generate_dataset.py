@@ -16,7 +16,7 @@ print("[CheckPoint 4] ✅ 模块导入完毕。")
 
 def capture_sam3_dataset():
     # 你的场景路径
-    scene_path = "/root/gpufree-data/battery_warehouse_SDG/assets/sacene_plasticCrates.usd"
+    scene_path = "/root/gpufree-data/battery_warehouse_SDG/assets/scene_01_completed.usd"
     
     print(f"[CheckPoint 5] 📂 准备加载场景文件: {scene_path}")
     t_load = time.time()
@@ -29,7 +29,7 @@ def capture_sam3_dataset():
     render_product = rep.create.render_product(camera, (1024, 1024))
 
     print("[CheckPoint 8] 🎲 开始构建域随机化 (Domain Randomization) 计算图...")
-    num_images_to_generate = 20
+    num_images_to_generate = 200
     
     with rep.trigger.on_frame(num_frames=num_images_to_generate):
         # --- A. 相机位姿随机化 ---
@@ -53,22 +53,46 @@ def capture_sam3_dataset():
     print("[CheckPoint 9] ✅ 随机化图构建完成。")
 
     print("[CheckPoint 10] 💾 开始初始化 BasicWriter 并配置输出格式...")
-    out_dir = "/root/gpufree-data/battery_warehouse_SDG/output_dataset"
-    writer = rep.writers.get("BasicWriter")
+    base_out_dir = "/root/gpufree-data/battery_warehouse_SDG/output_dataset"
     
-    writer.initialize(
-        output_dir=out_dir, 
-        rgb=True,                           
-        instance_segmentation=True,         
-        semantic_segmentation=True,         
-        bounding_box_2d_tight=True,         
-        colorize_semantic_segmentation=True 
-    )
-    writer.attach([render_product])
+    # 创建各个类型的输出文件夹
+    rgb_dir = os.path.join(base_out_dir, "rgb")
+    instance_dir = os.path.join(base_out_dir, "instance_segmentation")
+    semantic_dir = os.path.join(base_out_dir, "semantic_segmentation")
+    bbox_dir = os.path.join(base_out_dir, "bounding_box_2d_tight")
+    colorize_dir = os.path.join(base_out_dir, "colorize_semantic_segmentation")
+    
+    # 创建独立的 writers 分别写入不同文件夹
+    writer_rgb = rep.writers.get("BasicWriter")
+    writer_rgb.initialize(output_dir=rgb_dir, rgb=True)
+    writer_rgb.attach([render_product])
+    
+    writer_instance = rep.writers.get("BasicWriter")
+    writer_instance.initialize(output_dir=instance_dir, instance_segmentation=True)
+    writer_instance.attach([render_product])
+    
+    writer_semantic = rep.writers.get("BasicWriter")
+    writer_semantic.initialize(output_dir=semantic_dir, semantic_segmentation=True)
+    writer_semantic.attach([render_product])
+    
+    writer_bbox = rep.writers.get("BasicWriter")
+    writer_bbox.initialize(output_dir=bbox_dir, bounding_box_2d_tight=True)
+    writer_bbox.attach([render_product])
+    
+    writer_colorize = rep.writers.get("BasicWriter")
+    writer_colorize.initialize(output_dir=colorize_dir, colorize_semantic_segmentation=True)
+    writer_colorize.attach([render_product])
+    
     print("[CheckPoint 11] ✅ Writer 挂载完成。")
-
+    
+    print(f"📂 数据将分别保存在:")
+    print(f"   - RGB: {rgb_dir}")
+    print(f"   - Instance Segmentation: {instance_dir}")
+    print(f"   - Semantic Segmentation: {semantic_dir}")
+    print(f"   - Bounding Box 2D: {bbox_dir}")
+    print(f"   - Colorize Semantic: {colorize_dir}")
+    
     print(f"\n🚀 开始执行批量数据采集！预计生成 {num_images_to_generate} 张图片。")
-    print(f"📂 数据将保存在: {out_dir}")
     
     print("[CheckPoint 12] ⚡ 调用 rep.orchestrator.run() 触发采集任务...")
     rep.orchestrator.run()

@@ -19,7 +19,7 @@ import omni.usd
 # 码垛生成区域
 PALLET_ZONES = [
     {"x_range": (-10, 9), "y_range": (-11, -4.5)},   # 区域1: -10<x<9, -11<y<-4.5
-    {"x_range": (-5, 9), "y_range": (12.6, 16)}  # 区域2: -5<x<9, 12.6<y<16
+    {"x_range": (-10, 9), "y_range": (12.6, 16)}  # 区域2: -10<x<9, 12.6<y<16
 ]
 
 # 码垛规模参数
@@ -28,7 +28,7 @@ PALLET_MAX_LAYERS = 5   # 最多层数
 PALLET_MIN_COLS = 2     # 最少每层列数
 PALLET_MAX_COLS = 4     # 最多每层列数
 PALLET_MIN_ROWS = 2     # 最少每层行数
-PALLET_MAX_ROWS = 4     # 最多每层行数
+PALLET_MAX_ROWS = 3     # 最多每层行数
 
 # 货箱尺寸参数
 PALLET_CRATE_SCALE_XY = 1.0   # XY轴缩放
@@ -45,7 +45,7 @@ PALLET_CRATE_ROTATION_PROBABILITY = 0.5  # 货箱180°旋转的概率
 
 # 码垛数量控制
 PALLET_NUM_PALLETS_ZONE1 = 4   # 区域1码垛数量
-PALLET_NUM_PALLETS_ZONE2 = 3   # 区域2码垛数量
+PALLET_NUM_PALLETS_ZONE2 = 4   # 区域2码垛数量
 PALLET_PLACE_PROBABILITY = 0.8  # 放置概率
 
 # 语义标签
@@ -245,7 +245,7 @@ def populate_warehouse():
                     )
                     
                     # 散乱货箱的语义标签
-                    add_labels(prim, labels=[CRATE_SEMANTIC_LABEL], instance_name="class")
+                    #add_labels(prim, labels=[CRATE_SEMANTIC_LABEL], instance_name="class")
                     crate_counter += 1
 
     # ==========================================

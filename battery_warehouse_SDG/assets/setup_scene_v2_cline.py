@@ -7,7 +7,9 @@ import omni.timeline
 import omni.usd
 from isaacsim.core.utils.prims import create_prim
 from isaacsim.core.utils.semantics import add_labels, remove_all_semantics, remove_labels
-from pxr import UsdGeom, Usd
+from isaacsim.core.utils.prims import find_matching_prim_paths
+from pxr import UsdGeom, Usd, Sdf
+import omni.usd
 
 
 # ==========================================
@@ -26,7 +28,7 @@ PALLET_MAX_LAYERS = 5   # 最多层数
 PALLET_MIN_COLS = 2     # 最少每层列数
 PALLET_MAX_COLS = 4     # 最多每层列数
 PALLET_MIN_ROWS = 2     # 最少每层行数
-PALLET_MAX_ROWS = 3     # 最多每层行数
+PALLET_MAX_ROWS = 4     # 最多每层行数
 
 # 货箱尺寸参数
 PALLET_CRATE_SCALE_XY = 1.0   # XY轴缩放
@@ -39,10 +41,10 @@ PALLET_LAYER_SPACING_Z = 0.5   # 垂直层间距
 
 # 货箱随机旋转参数
 PALLET_CRATE_RANDOM_ROTATION = True  # 是否启用货箱随机180°旋转
-PALLET_CRATE_ROTATION_PROBABILITY = 0.3  # 货箱180°旋转的概率
+PALLET_CRATE_ROTATION_PROBABILITY = 0.5  # 货箱180°旋转的概率
 
 # 码垛数量控制
-PALLET_NUM_PALLETS_ZONE1 = 3   # 区域1码垛数量
+PALLET_NUM_PALLETS_ZONE1 = 4   # 区域1码垛数量
 PALLET_NUM_PALLETS_ZONE2 = 3   # 区域2码垛数量
 PALLET_PLACE_PROBABILITY = 0.8  # 放置概率
 
@@ -51,12 +53,120 @@ PALLET_SEMANTIC_LABEL = "crate_stack"  # 码垛整体的语义标签
 CRATE_SEMANTIC_LABEL = "plastic_crate"  # 散乱货箱的语义标签
 
 
+def apply_semantic_labels_to_groups(stage):
+    """
+    语义清洗与打标：
+    获取 /Root 路径下的 Group，并根据组名进行语义打标
+    - RackShelf_00 到 0X → "rack"
+    - floor 相关的组 → "floor"
+    - ceiling 相关的组 → "ceiling"
+    - 其他组根据名称自动识别
+    """
+    print("\n" + "="*60)
+    print("[语义打标] 开始获取 /Root 下的 Group 并进行语义打标...")
+    print("="*60)
+    
+    # 获取 /Root 路径下的所有子节点
+    root_prim = stage.GetPrimAtPath("/Root")
+    if not root_prim:
+        print("[错误] 无法获取 /Root 根节点")
+        return
+    
+    child_prims = list(root_prim.GetChildren())
+    print(f"[语义打标] /Root 下共有 {len(child_prims)} 个直接子节点")
+    
+    # 过滤出 Group 类型的节点
+    group_prims = []
+    for prim in child_prims:
+        prim_type = prim.GetTypeName()
+        if prim_type in ["Group", "Xform", "Scope"]:
+            group_prims.append(prim)
+    
+    print(f"[语义打标] 找到 {len(group_prims)} 个 Group/Xform/Scope 节点")
+    
+    # 调试输出：列出所有子节点路径和类型
+    print("\n--- /Root 下的所有子节点 ---")
+    for prim in child_prims:
+        prim_path = prim.GetPath().pathString
+        prim_type = prim.GetTypeName()
+        print(f"  [{prim_type}] {prim_path}")
+    print("-" * 40)
+    
+    # 定义标签映射规则
+    def get_label_from_path(path_str):
+        """根据路径确定语义标签"""
+        path_lower = path_str.lower()
+        
+        # RackShelf_00 到 0X → rack
+        if "rackshelf" in path_lower or "rack" in path_lower or "shelf" in path_lower:
+            return "rack"
+        
+        # floor/ground → floor
+        if "floor" in path_lower or "ground" in path_lower:
+            return "floor"
+        
+        # ceiling → ceiling
+        if "ceiling" in path_lower or "roof" in path_lower:
+            return "ceiling"
+        
+        # wall → wall
+        if "wall" in path_lower:
+            return "wall"
+        
+        # door → door
+        if "door" in path_lower:
+            return "door"
+        
+        # 默认返回 None，表示不处理
+        return None
+    
+    # 统计信息
+    labeled_count = 0
+    skipped_count = 0
+    
+    # 对每个 Group 进行语义清洗与打标
+    for prim in group_prims:
+        prim_path = prim.GetPath().pathString
+        prim_name = prim_path.split("/")[-1]
+        
+        # 确定标签
+        label = get_label_from_path(prim_path)
+        
+        if label is None:
+            print(f"[跳过] {prim_path} (无匹配标签)")
+            skipped_count += 1
+            continue
+        
+        try:
+            # 1. 递归清洗子节点自带的语义
+            remove_all_semantics(prim, recursive=True)
+            remove_labels(prim, include_descendants=True)
+            
+            # 2. 整体打标
+            add_labels(prim, labels=[label], instance_name="class")
+            
+            print(f"[打标] ✅ {prim_path} → {label}")
+            labeled_count += 1
+            
+        except Exception as e:
+            print(f"[错误] 处理 {prim_path} 失败: {e}")
+    
+    print("\n" + "="*60)
+    print(f"[语义打标] 完成！共处理 {labeled_count} 个组，跳过 {skipped_count} 个")
+    print("="*60)
+
+
 def populate_warehouse():
     
     # 场景路径
     scene_path = "/root/gpufree-data/battery_warehouse_SDG/assets/scene_01_6shelfves.usd"
     omni.usd.get_context().open_stage(scene_path)
     stage = omni.usd.get_context().get_stage()
+    
+    # ==========================================
+    # 语义清洗与打标
+    # ==========================================
+    apply_semantic_labels_to_groups(stage)
     
     # 官方资产库
     crate_urls = [
@@ -76,12 +186,13 @@ def populate_warehouse():
 
     # 定义 6 个货架的信息：(中心X, 中心Y, X方向宽度, Y方向长度)
     shelves_data = [
-        (-4.7, 4, 1.0, 15.0),
-        (0.0,  4, 1.0, 15.0),
-        (4.5,  4, 1.0, 15.0),
-        (8.6,  4, 1.0, 15.0),
-        (0.0,  16.8, 15.0, 1.0),
-        (0.0, -11.7, 15.0, 1.0)
+        (-9.3,4.35,1.0, 16.0),
+        (-4.7, 4.35, 1.0, 16.0),
+        (0.0,  4.35, 1.0, 16.0),
+        (4.5,  4.35, 1.0, 16.0),
+        (8.6,  4.35, 1.0, 16.0),
+        (0.0,  16.8, 16.0, 1.0),
+        (0.0, -11.7, 16.0, 1.0)
     ]
 
     # 安全边距
@@ -239,16 +350,29 @@ def populate_warehouse():
             print(f"  区域{zone_idx+1}: 生成码垛 {pallet_counter}, 规模 {num_layers}层 x {num_cols}列 x {num_rows}行")
 
     print("开始生成人物...")
-    # 2. 放置过道上的人
-    aisle_x_positions = [-2.35, 2.25, 6.75]
-    aisle_y_range = (0.0, 14.0) 
+    # 2. 放置过道上的人 - 避开码垛区域
+    # 码垛区域1: x_range=(-10,9), y_range=(-11,-4.5)
+    # 码垛区域2: x_range=(-5,9), y_range=(12.6,16)
+    # 安全区域: x=(-10,9), y=(-4.5,12.6) 即货架之间的过道
     
-    for i in range(5): 
+    # 调整过道位置，避开码垛区域
+    # 货架位置在 x=-9.3, -4.7, 0.0, 4.5, 8.6 附近，过道应在两排货架之间
+    aisle_x_positions = [-7.0, -2.35, 2.25, 6.75]  # 扩展过道位置
+    # 使用安全的y范围：(-4.5, 12.6) 避开两个码垛区域
+    aisle_y_range = (-2.0, 10.0)  # 避开码垛区域1(y<-4.5)和区域2(y>12.6)
+    
+    # 调试输出人物生成位置
+    print(f"[人物生成] 过道X位置: {aisle_x_positions}")
+    print(f"[人物生成] Y轴范围: {aisle_y_range}")
+    
+    for i in range(6): 
         selected_human = random.choice(human_urls)
         
         base_x = random.choice(aisle_x_positions)
         h_pos_x = base_x + random.uniform(-0.6, 0.6) 
         h_pos_y = random.uniform(*aisle_y_range)
+        
+        print(f"[人物生成] Human_{i}: 位置=({h_pos_x:.2f}, {h_pos_y:.2f})")
         
         angle = random.uniform(0, 2 * math.pi)
         qw = math.cos(angle / 2)

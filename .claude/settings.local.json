@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mv battery_warehouse_SDG/assets/*.usd scenes/battery_warehouse/)",
+      "Bash(mv my_warehouse/*.usd scenes/my_warehouse/)",
+      "Bash(mv 3Dreconstruction/CODE/3DGS_Dataset_collect/*.py scripts/3DGS/)",
+      "Bash(mv 3Dreconstruction/CODE/3DGS_Dataset_collect/verify/*.py verify/)"
+    ]
+  }
+}

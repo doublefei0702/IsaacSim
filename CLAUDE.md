@@ -16,25 +16,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 isaacsim/
-├── battery_warehouse_SDG/          # 仓储场景合成数据生成
-│   ├── generate_dataset.py        # 主数据采集脚本 (Replicator)
-│   ├── convert_to_sam3.py         # COCO 格式转换脚本
-│   ├── assets/
-│   │   ├── scene_01_completed.usd  # 完整场景 USD 文件
+├── CLAUDE.md
+├── scenes/                         # 所有 USD 场景资产
+│   ├── battery_warehouse/          # 工厂仓库合成数据场景
+│   │   ├── scene_01_completed.usd  # 完整场景 (含货箱/码垛/语义)
 │   │   ├── scene_01_6shelfves.usd # 6货架场景
-│   │   └── setup_scene_v2_cline.py # 场景初始化 (货箱/码垛/语义标签)
-│   └── output_dataset/             # 采集输出目录
-│       ├── rgb/                   # RGB 图像
-│       ├── instance_segmentation/ # 实例分割 mask + mapping JSON
-│       ├── semantic_segmentation/ # 语义分割数据
-│       └── bounding_box_2d_tight/ # 2D 边界框
-├── 3Dreconstruction/              # 3D 重建数据采集
-│   └── CODE/3DGS_Dataset_collect/
+│   │   ├── scene_01_complete.usd
+│   │   └── sacene_plasticCrates.usd
+│   └── my_warehouse/              # 3DGS 建图用仓库场景
+│       └── my_warehouse_for_3DReconstrcion.usd
+├── scripts/                        # 所有脚本统一管理
+│   ├── battery_warehouse/         # 工厂仓库 SDG 脚本
+│   │   ├── generate_dataset.py     # 主数据采集 (Replicator 域随机化)
+│   │   ├── convert_to_sam3.py     # COCO 格式转换
+│   │   ├── setup_scene_v2_cline.py # 场景初始化 (货箱/码垛/语义)
+│   │   └── setup_scene_test.py    # 测试用场景设置
+│   └── 3DGS/                      # 3DGS 建图数据采集脚本
 │       ├── replicator_final.py     # 机器人路径规划与数据采集
 │       ├── batch_extract_params.py # 批量提取参数
-│       └── verify/                # 数据验证脚本
-└── my_warehouse/
-    └── my_warehouse_for_3DReconstrcion.usd  # 3D 重建用仓库场景
+│       ├── check_params.py        # 参数检查
+│       └── Get_ply.py             # 点云获取
+├── verify/                        # 数据验证脚本
+│   ├── verify_transforms.py
+│   └── verify_mask.py
+└── output_dataset/                 # 采集输出目录 (运行时生成)
+    ├── rgb/                       # RGB 图像
+    ├── instance_segmentation/     # 实例分割 mask + mapping JSON
+    ├── semantic_segmentation/     # 语义分割数据
+    └── bounding_box_2d_tight/    # 2D 边界框
 ```
 
 ## 运行方式
@@ -42,18 +51,18 @@ isaacsim/
 ### 1. 数据采集 (需要 Isaac Sim 环境)
 
 ```bash
-# 合成数据生成 - 在 GPU Free 机器上运行
-python battery_warehouse_SDG/generate_dataset.py
+# 工厂仓库合成数据生成
+python scripts/battery_warehouse/generate_dataset.py
 
-# 3D 重建数据采集
-python 3Dreconstruction/CODE/3DGS_Dataset_collect/replicator_final.py
+# 3DGS 建图数据采集
+python scripts/3DGS/replicator_final.py
 ```
 
 ### 2. COCO 格式转换 (可在本地运行)
 
 ```bash
-cd battery_warehouse_SDG/output_dataset
-python ../../convert_to_sam3.py
+cd output_dataset
+python ../scripts/battery_warehouse/convert_to_sam3.py
 ```
 
 转换输出到 `data/train/` 和 `data/valid/` 目录，包含:
@@ -64,21 +73,31 @@ python ../../convert_to_sam3.py
 
 ```bash
 # 场景初始化 (生成货箱、码垛、语义标签)
-python battery_warehouse_SDG/assets/setup_scene_v2_cline.py
+python scripts/battery_warehouse/setup_scene_v2_cline.py
+```
+
+### 4. 数据验证
+
+```bash
+# 验证采集的姿态轨迹
+python verify/verify_transforms.py
+
+# 验证 mask 是否正确
+python verify/verify_mask.py
 ```
 
 ## 数据流程
 
 ```
-scene_01_completed.usd
+scenes/battery_warehouse/scene_01_completed.usd
     ↓
-setup_scene_v2_cline.py (场景填充 + 语义打标)
+scripts/battery_warehouse/setup_scene_v2_cline.py (场景填充 + 语义打标)
     ↓
-generate_dataset.py (Replicator 域随机化)
+scripts/battery_warehouse/generate_dataset.py (Replicator 域随机化)
     ↓
 output_dataset/ (rgb, instance_segmentation, semantic_segmentation, bbox)
     ↓
-convert_to_sam3.py (COCO 格式转换)
+scripts/battery_warehouse/convert_to_sam3.py (COCO 格式转换)
     ↓
 data/train/_annotations.coco.json + rgb images
     ↓

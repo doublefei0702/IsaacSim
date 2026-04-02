@@ -36,15 +36,16 @@ print("[CheckPoint 4] ✅ 模块导入完毕。")
 # 配置区域
 # ============================================================================
 
-# COCO 类别定义（必须按照 COCO 格式）
+# COCO 类别定义（字典格式，键是语义标签）
 # 参考: https://cocodataset.org/#format-data
-COCO_CATEGORIES = [
-    {"id": 1, "name": "crate", "supercategory": "object"},
-    {"id": 2, "name": "crate_stack", "supercategory": "object"},
-    {"id": 3, "name": "person", "supercategory": "person"},
-    {"id": 4, "name": "storage_rack", "supercategory": "furniture"},
-    {"id": 5, "name": "floor", "supercategory": "background"},
-]
+# 格式: {"semantic_name": {"name": "...", "id": 123, "supercategory": "...", "color": (R,G,B,A), "isthing": 1}}
+COCO_CATEGORIES = {
+    "crate": {"name": "crate", "id": 1, "supercategory": "object", "color": (0, 255, 0, 255), "isthing": 1},
+    "crate_stack": {"name": "crate_stack", "id": 2, "supercategory": "object", "color": (255, 165, 0, 255), "isthing": 1},
+    "person": {"name": "person", "id": 3, "supercategory": "person", "color": (0, 0, 255, 255), "isthing": 1},
+    "storage_rack": {"name": "storage_rack", "id": 4, "supercategory": "furniture", "color": (255, 0, 255, 255), "isthing": 1},
+    "floor": {"name": "floor", "id": 5, "supercategory": "background", "color": (0, 255, 255, 255), "isthing": 0},
+}
 
 # 要考虑的语义类型
 SEMANTIC_TYPES = ["class"]

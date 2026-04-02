@@ -396,7 +396,7 @@ def generate_data_yaml(yolo_path: Path):
     生成 YOLO 训练配置文件 data.yaml。
     """
     yaml_content = f"""# YOLO 分割数据集配置
-# 自动生成
+# 自动生成于 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 path: {yolo_path.absolute()}
 train: images/train

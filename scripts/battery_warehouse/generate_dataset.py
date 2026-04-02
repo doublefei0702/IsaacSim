@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 """
-Isaac Sim Replicator 数据集采集脚本
+Isaac Sim Replicator 数据集采集脚本（简化版）
 
-使用 BasicWriter 采集 RGB 和实例分割数据。
+使用单个 BasicWriter 采集 RGB + 实例分割数据。
 
 输出格式：
 output_dataset/
 ├── rgb/                      # RGB 图像 (JPG)
 ├── instance_segmentation/       # 实例分割 mask (PNG)
 └── instance_segmentation_semantics_mapping_*.json  # 映射文件
-
-可用于 Ultralytics 转换为 YOLO 格式：
-    yolo coco convert data=output_dataset
 """
 
 import os
@@ -20,7 +17,6 @@ import time
 print("[CheckPoint 1] 🚀 开始启动 SimulationApp (无头模式)...")
 t_start = time.time()
 from isaacsim import SimulationApp
-# 启动无头模式 (Headless: True)，后台极速渲染，不弹界面
 simulation_app = SimulationApp({"headless": True})
 print(f"[CheckPoint 2] ✅ SimulationApp 启动完成！耗时: {time.time() - t_start:.2f} 秒")
 
@@ -35,13 +31,13 @@ print("[CheckPoint 4] ✅ 模块导入完毕。")
 # 配置区域
 # ============================================================================
 
-# 过滤阈值（调高）
-MIN_AREA = 6400          # 最小面积阈值（像素数）
-MIN_DIMENSION = 80       # 最小宽高阈值（像素）
-
-# 采集配置
+# 采集帧数
 num_images_to_generate = 200
+
+# 场景路径
 scene_path = "/root/gpufree-data/IsaacSim/scenes/battery_warehouse/scene_01_completed.usd"
+
+# 输出目录（所有数据写入同一文件夹）
 output_dir = "/root/gpufree-data/output_dataset"
 
 
@@ -51,7 +47,7 @@ output_dir = "/root/gpufree-data/output_dataset"
 
 def capture_dataset():
     """
-    主函数：采集 RGB + 实例分割数据。
+    主函数：采集数据集。
     """
     print(f"[CheckPoint 5] 📂 准备加载场景文件: {scene_path}")
     t_load = time.time()
@@ -88,38 +84,25 @@ def capture_dataset():
 
     print("[CheckPoint 10] 💾 初始化 BasicWriter（RGB + 实例分割）...")
 
-    # 只初始化 2 个 Writer：RGB + 实例分割
-    # 避免初始化过多 Writer 导致 IO 堵塞
-
-    writer_rgb = rep.writers.get("BasicWriter")
-    writer_rgb.initialize(
+    # 只初始化一个 Writer，输出所有数据到同一目录
+    writer = rep.writers.get("BasicWriter")
+    writer.initialize(
         output_dir=output_dir,
         rgb=True,
-        image_output_format="jpg"  # 使用 JPG 格式节省空间
-    )
-
-    writer_instance = rep.writers.get("BasicWriter")
-    writer_instance.initialize(
-        output_dir=output_dir,
         instance_segmentation=True,
-        colorize_instance_segmentation=False  # 不保存彩色版本，节省时间
+        image_output_format="jpg"
     )
 
-    # 挂载所有 Writer 到 render_product
-    writer_rgb.attach([render_product])
-    writer_instance.attach([render_product])
+    # 挂载到 render_product
+    writer.attach([render_product])
 
     print("[CheckPoint 11] ✅ Writer 挂载完成。")
 
     print(f"📂 数据将保存到: {output_dir}")
     print(f"   - rgb/                      (RGB 图像，JPG 格式)")
     print(f"   - instance_segmentation/       (实例分割 mask，PNG 格式)")
-    print(f"")
-    print(f"📊 过滤阈值:")
-    print(f"   - 最小面积: {MIN_AREA} 像素")
-    print(f"   - 最小宽高: {MIN_DIMENSION} 像素")
-    print(f"")
-    print(f"🚀 开始执行批量数据采集！预计生成 {num_images_to_generate} 张图片。")
+
+    print(f"\n🚀 开始执行批量数据采集！预计生成 {num_images_to_generate} 张图片。")
 
     print("[CheckPoint 12] ⚡ 调用 rep.orchestrator.run() 触发采集任务...")
     rep.orchestrator.run()
@@ -131,8 +114,11 @@ def capture_dataset():
 
     # 检查生成的文件
     print("\n📊 检查生成的文件:")
-    print(f"   RGB 文件数: {len(os.listdir(os.path.join(output_dir, 'rgb'))) if os.path.exists(os.path.join(output_dir, 'rgb')) else 0}")
-    print(f"   实例分割文件数: {len(os.listdir(os.path.join(output_dir, 'instance_segmentation'))) if os.path.exists(os.path.join(output_dir, 'instance_segmentation')) else 0}")
+    rgb_count = len(os.listdir(os.path.join(output_dir, "rgb"))) if os.path.exists(os.path.join(output_dir, "rgb")) else 0
+    instance_count = len(os.listdir(os.path.join(output_dir, "instance_segmentation"))) if os.path.exists(os.path.join(output_dir, "instance_segmentation")) else 0
+
+    print(f"   RGB 文件数: {rgb_count}")
+    print(f"   实例分割文件数: {instance_count}")
 
 
 # ============================================================================

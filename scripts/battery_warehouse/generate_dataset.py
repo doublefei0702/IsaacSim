@@ -1,3 +1,19 @@
+#!/usr/bin/env python3
+"""
+Isaac Sim Replicator 数据集采集脚本
+
+使用 BasicWriter 采集 RGB 和实例分割数据。
+
+输出格式：
+output_dataset/
+├── rgb/                      # RGB 图像 (JPG)
+├── instance_segmentation/       # 实例分割 mask (PNG)
+└── instance_segmentation_semantics_mapping_*.json  # 映射文件
+
+可用于 Ultralytics 转换为 YOLO 格式：
+    yolo coco convert data=output_dataset
+"""
+
 import os
 import time
 
@@ -8,16 +24,35 @@ from isaacsim import SimulationApp
 simulation_app = SimulationApp({"headless": True})
 print(f"[CheckPoint 2] ✅ SimulationApp 启动完成！耗时: {time.time() - t_start:.2f} 秒")
 
-print("[CheckPoint 3] 📦 开始导入底层模块 (omni.replicator, omni.usd)...")
+print("[CheckPoint 3] 📦 开始导入底层模块...")
 import omni.replicator.core as rep
 import omni.usd
 from isaacsim.core.utils.semantics import add_labels
 print("[CheckPoint 4] ✅ 模块导入完毕。")
 
-def capture_sam3_dataset():
-    # 你的场景路径
-    scene_path = "/root/gpufree-data/battery_warehouse_SDG/assets/scene_01_completed.usd"
-    
+
+# ============================================================================
+# 配置区域
+# ============================================================================
+
+# 过滤阈值（调高）
+MIN_AREA = 6400          # 最小面积阈值（像素数）
+MIN_DIMENSION = 80       # 最小宽高阈值（像素）
+
+# 采集配置
+num_images_to_generate = 200
+scene_path = "/root/gpufree-data/IsaacSim/scenes/battery_warehouse/scene_01_completed.usd"
+output_dir = "/root/gpufree-data/output_dataset"
+
+
+# ============================================================================
+# 主函数
+# ============================================================================
+
+def capture_dataset():
+    """
+    主函数：采集 RGB + 实例分割数据。
+    """
     print(f"[CheckPoint 5] 📂 准备加载场景文件: {scene_path}")
     t_load = time.time()
     omni.usd.get_context().open_stage(scene_path)
@@ -28,9 +63,8 @@ def capture_sam3_dataset():
     camera = rep.create.camera()
     render_product = rep.create.render_product(camera, (1024, 1024))
 
-    print("[CheckPoint 8] 🎲 开始构建域随机化 (Domain Randomization) 计算图...")
-    num_images_to_generate = 200
-    
+    print("[CheckPoint 8] 🎲 开始构建域随机化计算图...")
+
     with rep.trigger.on_frame(num_frames=num_images_to_generate):
         # --- A. 相机位姿随机化 ---
         with camera:
@@ -52,58 +86,62 @@ def capture_sam3_dataset():
 
     print("[CheckPoint 9] ✅ 随机化图构建完成。")
 
-    print("[CheckPoint 10] 💾 开始初始化 BasicWriter 并配置输出格式...")
-    base_out_dir = "/root/gpufree-data/battery_warehouse_SDG/output_dataset"
-    
-    # 创建各个类型的输出文件夹
-    rgb_dir = os.path.join(base_out_dir, "rgb")
-    instance_dir = os.path.join(base_out_dir, "instance_segmentation")
-    semantic_dir = os.path.join(base_out_dir, "semantic_segmentation")
-    bbox_dir = os.path.join(base_out_dir, "bounding_box_2d_tight")
-    colorize_dir = os.path.join(base_out_dir, "colorize_semantic_segmentation")
-    
-    # 创建独立的 writers 分别写入不同文件夹
+    print("[CheckPoint 10] 💾 初始化 BasicWriter（RGB + 实例分割）...")
+
+    # 只初始化 2 个 Writer：RGB + 实例分割
+    # 避免初始化过多 Writer 导致 IO 堵塞
+
     writer_rgb = rep.writers.get("BasicWriter")
-    writer_rgb.initialize(output_dir=rgb_dir, rgb=True)
-    writer_rgb.attach([render_product])
-    
+    writer_rgb.initialize(
+        output_dir=output_dir,
+        rgb=True,
+        image_output_format="jpg"  # 使用 JPG 格式节省空间
+    )
+
     writer_instance = rep.writers.get("BasicWriter")
-    writer_instance.initialize(output_dir=instance_dir, instance_segmentation=True)
+    writer_instance.initialize(
+        output_dir=output_dir,
+        instance_segmentation=True,
+        colorize_instance_segmentation=False  # 不保存彩色版本，节省时间
+    )
+
+    # 挂载所有 Writer 到 render_product
+    writer_rgb.attach([render_product])
     writer_instance.attach([render_product])
-    
-    writer_semantic = rep.writers.get("BasicWriter")
-    writer_semantic.initialize(output_dir=semantic_dir, semantic_segmentation=True)
-    writer_semantic.attach([render_product])
-    
-    writer_bbox = rep.writers.get("BasicWriter")
-    writer_bbox.initialize(output_dir=bbox_dir, bounding_box_2d_tight=True)
-    writer_bbox.attach([render_product])
-    
-    writer_colorize = rep.writers.get("BasicWriter")
-    writer_colorize.initialize(output_dir=colorize_dir, colorize_semantic_segmentation=True)
-    writer_colorize.attach([render_product])
-    
+
     print("[CheckPoint 11] ✅ Writer 挂载完成。")
-    
-    print(f"📂 数据将分别保存在:")
-    print(f"   - RGB: {rgb_dir}")
-    print(f"   - Instance Segmentation: {instance_dir}")
-    print(f"   - Semantic Segmentation: {semantic_dir}")
-    print(f"   - Bounding Box 2D: {bbox_dir}")
-    print(f"   - Colorize Semantic: {colorize_dir}")
-    
-    print(f"\n🚀 开始执行批量数据采集！预计生成 {num_images_to_generate} 张图片。")
-    
+
+    print(f"📂 数据将保存到: {output_dir}")
+    print(f"   - rgb/                      (RGB 图像，JPG 格式)")
+    print(f"   - instance_segmentation/       (实例分割 mask，PNG 格式)")
+    print(f"")
+    print(f"📊 过滤阈值:")
+    print(f"   - 最小面积: {MIN_AREA} 像素")
+    print(f"   - 最小宽高: {MIN_DIMENSION} 像素")
+    print(f"")
+    print(f"🚀 开始执行批量数据采集！预计生成 {num_images_to_generate} 张图片。")
+
     print("[CheckPoint 12] ⚡ 调用 rep.orchestrator.run() 触发采集任务...")
     rep.orchestrator.run()
-    
+
     print("[CheckPoint 13] ⏳ 进入 wait_until_complete() 阻塞等待，请检查硬盘是否有文件生成...")
     rep.orchestrator.wait_until_complete()
-    
+
     print("\n[CheckPoint 14] ✅ 数据集采集完美结束！")
 
-capture_sam3_dataset()
+    # 检查生成的文件
+    print("\n📊 检查生成的文件:")
+    print(f"   RGB 文件数: {len(os.listdir(os.path.join(output_dir, 'rgb'))) if os.path.exists(os.path.join(output_dir, 'rgb')) else 0}")
+    print(f"   实例分割文件数: {len(os.listdir(os.path.join(output_dir, 'instance_segmentation'))) if os.path.exists(os.path.join(output_dir, 'instance_segmentation')) else 0}")
 
-print("[CheckPoint 15] 🛑 准备关闭 SimulationApp...")
-simulation_app.close()
-print("[CheckPoint 16] 🎉 程序完全退出。")
+
+# ============================================================================
+# 入口
+# ============================================================================
+
+if __name__ == "__main__":
+    capture_dataset()
+
+    print("[CheckPoint 15] 🛑 准备关闭 SimulationApp...")
+    simulation_app.close()
+    print("[CheckPoint 16] 🎉 程序完全退出。")

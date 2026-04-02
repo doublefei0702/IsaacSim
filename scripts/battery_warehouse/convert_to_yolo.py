@@ -97,16 +97,24 @@ def mask_to_polygon(mask: np.ndarray) -> np.ndarray:
     return simplified_contour
 
 
-def setup_logging(log_file: str = "convert_to_yolo.log"):
-    """设置日志配置"""
+def setup_logging(log_file: str = "convert_to_yolo.log", log_level: str = "DEBUG"):
+    """设置日志配置
+
+    Args:
+        log_file: 日志文件名
+        log_level: 日志级别，默认 DEBUG 以输出所有日志
+    """
+    level = getattr(logging, log_level.upper(), logging.DEBUG)
     logging.basicConfig(
-        level=logging.INFO,
+        level=level,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
             logging.FileHandler(log_file, encoding='utf-8'),
             logging.StreamHandler(sys.stdout)
         ]
     )
+    # 确保根 logger 级别一致
+    logging.getLogger().setLevel(level)
     return logging.getLogger(__name__)
 
 
@@ -123,7 +131,7 @@ def convert_to_yolo(
         yolo_dir: YOLO 输出目录
         train_ratio: 训练集比例
     """
-    logger = setup_logging()
+    logger = setup_logging(log_level="DEBUG")
     data_path = Path(data_dir)
     yolo_path = Path(yolo_dir)
 
@@ -196,23 +204,33 @@ def convert_to_yolo(
     # 查找所有分割文件
     instance_dir = data_path / "instance_segmentation"
     if instance_dir.exists():
-        for file in instance_dir.glob("instance_segmentation_*.png"):
-            # 直接用 RGB 文件名作为 key，方便直接匹配
-            # 例如: rgb_0001.png -> instance_segmentation_0001.png
+        instance_png_files = sorted(list(instance_dir.glob("instance_segmentation_*.png")))
+        logger.info(f"🔍 在 {instance_dir} 中查找分割文件，找到 {len(instance_png_files)} 个:")
+        for file in instance_png_files:
+            logger.info(f"   - {file.name}")
             instance_files[file.stem] = file
+    else:
+        logger.warning(f"⚠️ 分割目录不存在: {instance_dir}")
 
     # 查找所有映射文件（优先使用 semantics_mapping 版本）
-    for file in instance_dir.glob("instance_segmentation_semantics_mapping_*.json"):
+    logger.info("🔍 查找映射文件 (优先 semantics_mapping 版本):")
+    semantics_mapping_files = sorted(list(instance_dir.glob("instance_segmentation_semantics_mapping_*.json")))
+    for file in semantics_mapping_files:
         mapping_files[file.stem] = file
+        logger.info(f"   ✅ semantics_mapping: {file.name}")
 
     # 如果没有 semantics_mapping，使用简化版本
-    for file in instance_dir.glob("instance_segmentation_mapping_*.json"):
+    simple_mapping_files = sorted(list(instance_dir.glob("instance_segmentation_mapping_*.json")))
+    for file in simple_mapping_files:
         stem = file.stem
         # 避免覆盖 semantics_mapping 版本
         if "semantics" not in stem and stem not in mapping_files:
             mapping_files[stem] = file
+            logger.info(f"   📄 simple_mapping: {file.name}")
+        else:
+            logger.debug(f"   ⏭️ 跳过 (已被 semantics_mapping 覆盖): {file.name}")
 
-    logger.debug(f"找到 {len(instance_files)} 个分割文件, {len(mapping_files)} 个映射文件")
+    logger.info(f"📊 文件统计: {len(instance_files)} 个分割文件, {len(mapping_files)} 个映射文件")
 
     for idx, rgb_file in enumerate(rgb_files):
         # 确定数据集划分
@@ -225,7 +243,7 @@ def convert_to_yolo(
         else:
             continue
 
-        logger.debug(f"处理图像 {idx + 1}/{len(rgb_files)}: {rgb_file.name}")
+        logger.info(f"📷 处理图像 {idx + 1}/{len(rgb_files)}: {rgb_file.name} [{split}]")
 
         # 使用 RGB 文件名（不含扩展名）查找对应的分割和映射文件
         rgb_stem = rgb_file.stem
@@ -235,17 +253,25 @@ def convert_to_yolo(
         idx_match = rgb_stem.split('_')[-1] if '_' in rgb_stem else rgb_stem
         instance_stem = f"instance_segmentation_{idx_match}"
 
+        logger.info(f"   🔑 RGB stem: '{rgb_stem}' → 索引: '{idx_match}' → 查找: '{instance_stem}'")
+
         # 检查对应的分割文件是否存在
         if instance_stem not in instance_files:
-            logger.warning(f"跳过无对应分割的图像: {rgb_file} (未找到分割文件)")
+            logger.warning(f"   ⚠️ 未找到分割文件: {instance_stem}.png")
+            logger.warning(f"   可用的分割文件: {list(instance_files.keys())}")
             skipped_images += 1
             continue
+        else:
+            logger.info(f"   ✅ 找到分割文件: {instance_files[instance_stem].name}")
 
         # 检查对应的映射文件是否存在
         if instance_stem not in mapping_files:
-            logger.warning(f"跳过无映射的图像: {rgb_file} (未找到映射文件)")
+            logger.warning(f"   ⚠️ 未找到映射文件: {instance_stem}_mapping.json 或 _semantics_mapping.json")
+            logger.warning(f"   可用的映射文件: {list(mapping_files.keys())}")
             skipped_images += 1
             continue
+        else:
+            logger.info(f"   ✅ 找到映射文件: {mapping_files[instance_stem].name}")
 
         # 读取 RGB 图像
         image = cv2.imread(str(rgb_file))
@@ -356,7 +382,7 @@ def convert_to_yolo(
                 continue
 
             # 检查边界框尺寸
-            x, y, w, h = cv2.boundingRect(polygon)
+            _, _, w, h = cv2.boundingRect(polygon)
             if w < MIN_DIMENSION or h < MIN_DIMENSION:
                 stats['filtered_by_dimension'] += 1
                 logger.debug(f"过滤: 边界框尺寸 {w}x{h} < {MIN_DIMENSION}x{MIN_DIMENSION}")

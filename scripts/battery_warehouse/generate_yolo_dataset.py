@@ -506,7 +506,12 @@ def capture_yolo_dataset():
 
     print("[CheckPoint 8] 🎲 开始构建域随机化计算图...")
 
-    with rep.trigger.on_frame(num_frames=num_images_to_generate):
+    # 先注册 Writer（在 trigger 之前）
+    print("[CheckPoint 9] 💾 注册 YOLOSegWriter...")
+    rep.writers.register_writer(YOLOSegWriter)
+
+    # 获取 trigger
+    with rep.trigger.on_frame(num_frames=num_images_to_generate) as trigger:
         # --- A. 相机位姿随机化 ---
         with camera:
             rep.modify.pose(
@@ -525,28 +530,22 @@ def capture_yolo_dataset():
         with crates:
             rep.randomizer.color(colors=rep.distribution.uniform((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)))
 
-    print("[CheckPoint 9] ✅ 随机化图构建完成。")
+        # 在 trigger 块内挂载 Writer，传入 trigger 参数
+        print("[CheckPoint 10] 📌 挂载 YOLOSegWriter 到 render_product...")
 
-    print("[CheckPoint 10] 💾 初始化 YOLOSegWriter...")
+        writer = rep.writers.get(
+            name="YOLOSegWriter",
+            init_params={
+                "output_dir": output_dir,
+                "total_frames": num_images_to_generate,
+                "train_ratio": TRAIN_RATIO
+            },
+            render_products=[render_product],
+            trigger=trigger  # 显式传入 trigger
+        )
 
-    # 注册自定义 Writer
-    rep.writers.register_writer(YOLOSegWriter)
-
-    # 获取 Writer 实例
-    writer = rep.writers.get("YOLOSegWriter")
-
-    # 初始化 Writer
-    writer.initialize(
-        output_dir=output_dir,
-        total_frames=num_images_to_generate,
-        train_ratio=TRAIN_RATIO
-    )
-
-    # 挂载到 render_product（必须传入列表）
-    writer.attach([render_product])
-
+    print("[CheckPoint 11] ✅ 随机化图与 Writer 挂载完成。")
     print(f"[DEBUG] Writer annotators: {writer.annotators}")
-    print("[CheckPoint 11] ✅ Writer 挂载完成。")
 
     print(f"📂 数据将保存到: {output_dir}")
     print(f"   - images/train/  (训练集图像)")

@@ -12,11 +12,17 @@ BasicWriter 数据集转换为 YOLO 格式
     pip install opencv-python numpy
 """
 
+import logging
+import sys
+from datetime import datetime
+
 import os
 import argparse
 import random
+import json
 from pathlib import Path
 from typing import Dict, List, Tuple
+import shutil
 
 import numpy as np
 import cv2
@@ -77,12 +83,31 @@ def mask_to_polygon(mask: np.ndarray) -> np.ndarray:
     )
 
     if not contours:
+        logger = logging.getLogger(__name__)
+        logger.debug("未找到任何轮廓")
         return None
 
     # 使用面积最大的轮廓
     largest_contour = max(contours, key=cv2.contourArea)
 
-    return largest_contour
+    # 简化轮廓，减少点数
+    epsilon = 0.01 * cv2.arcLength(largest_contour, True)
+    simplified_contour = cv2.approxPolyDP(largest_contour, epsilon, True)
+
+    return simplified_contour
+
+
+def setup_logging(log_file: str = "convert_to_yolo.log"):
+    """设置日志配置"""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file, encoding='utf-8'),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    return logging.getLogger(__name__)
 
 
 def convert_to_yolo(
@@ -337,11 +362,12 @@ names:
     with open(yaml_path_final, 'w', encoding='utf-8') as f:
         f.write(yaml_content)
 
-    print(f"  📄 生成配置文件: {yaml_path_final}")
 
 
 def main():
     """主函数"""
+    logger = logging.getLogger(__name__)
+
     parser = argparse.ArgumentParser(
         description="BasicWriter 数据集转换为 YOLO 格式"
     )
@@ -363,14 +389,29 @@ def main():
         default=TRAIN_RATIO,
         help="训练集比例 (0.0-1.0)",
     )
+    parser.add_argument(
+        "--log_level",
+        type=str,
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="日志级别",
+    )
 
     args = parser.parse_args()
+
+    # 设置日志级别
+    logging.getLogger().setLevel(getattr(logging, args.log_level))
+
+    logger.info(f"开始运行 convert_to_yolo.py")
+    logger.info(f"参数: data_dir={args.data_dir}, yolo_dir={args.yolo_dir}, train_ratio={args.train_ratio}")
 
     convert_to_yolo(
         data_dir=args.data_dir,
         yolo_dir=args.yolo_dir,
         train_ratio=args.train_ratio
     )
+
+    logger.info("程序执行成功完成")
 
 
 if __name__ == "__main__":

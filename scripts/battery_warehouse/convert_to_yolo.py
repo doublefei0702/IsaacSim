@@ -320,83 +320,82 @@ def convert_to_yolo(
                 logger.debug(f"无效的 label_info 格式: {type(label_info)}")
                 continue
 
-                # 跳过忽略类别
-                if class_name in IGNORE_LABELS:
-                    stats['filtered_by_class'] += 1
-                    logger.debug(f"忽略类别: {class_name}")
-                    continue
+            # 跳过忽略类别
+            if class_name in IGNORE_LABELS:
+                stats['filtered_by_class'] += 1
+                logger.debug(f"忽略类别: {class_name}")
+                continue
 
-                # 映射到 YOLO class_id
-                yolo_class_id = CLASS_NAME_TO_ID.get(class_name)
-                if yolo_class_id is None:
-                    logger.warning(f"未知的类别名称: {class_name}")
-                    continue
+            # 映射到 YOLO class_id
+            yolo_class_id = CLASS_NAME_TO_ID.get(class_name)
+            if yolo_class_id is None:
+                logger.warning(f"未知的类别名称: {class_name}")
+                continue
 
-                # 提取二值掩码
-                binary_mask = (mask_image == mask_id).astype(np.uint8)
+            # 提取二值掩码
+            binary_mask = (mask_image == mask_id).astype(np.uint8)
 
-                # 检查面积
-                area = np.sum(binary_mask)
-                logger.debug(f"Mask ID {mask_id} ({class_name}) 面积: {area}")
+            # 检查面积
+            area = np.sum(binary_mask)
+            logger.debug(f"Mask ID {mask_id} ({class_name}) 面积: {area}")
 
-                if area < MIN_AREA:
-                    stats['filtered_by_area'] += 1
-                    logger.debug(f"过滤: 面积 {area} < {MIN_AREA}")
-                    continue
+            if area < MIN_AREA:
+                stats['filtered_by_area'] += 1
+                logger.debug(f"过滤: 面积 {area} < {MIN_AREA}")
+                continue
 
-                # 转换为多边形
-                polygon = mask_to_polygon(binary_mask)
-                if polygon is None:
-                    logger.warning(f"无法为 mask_id={mask_id} 生成多边形")
-                    continue
+            # 转换为多边形
+            polygon = mask_to_polygon(binary_mask)
+            if polygon is None:
+                logger.warning(f"无法为 mask_id={mask_id} 生成多边形")
+                continue
 
-                # 检查边界框尺寸
-                x, y, w, h = cv2.boundingRect(polygon)
-                if w < MIN_DIMENSION or h < MIN_DIMENSION:
-                    stats['filtered_by_dimension'] += 1
-                    logger.debug(f"过滤: 边界框尺寸 {w}x{h} < {MIN_DIMENSION}x{MIN_DIMENSION}")
-                    continue
+            # 检查边界框尺寸
+            x, y, w, h = cv2.boundingRect(polygon)
+            if w < MIN_DIMENSION or h < MIN_DIMENSION:
+                stats['filtered_by_dimension'] += 1
+                logger.debug(f"过滤: 边界框尺寸 {w}x{h} < {MIN_DIMENSION}x{MIN_DIMENSION}")
+                continue
 
-                # 归一化坐标到 [0, 1]
-                normalized_points = []
-                polygon = polygon.reshape(-1, 2)  # 确保是正确的形状
-                for point in polygon:
-                    px = float(point[0]) / width
-                    py = float(point[1]) / height
-                    # 确保坐标在有效范围内
-                    px = max(0.0, min(1.0, px))
-                    py = max(0.0, min(1.0, py))
-                    normalized_points.extend([px, py])
+            # 归一化坐标到 [0, 1]
+            normalized_points = []
+            polygon = polygon.reshape(-1, 2)
+            for point in polygon:
+                px = float(point[0]) / width
+                py = float(point[1]) / height
+                px = max(0.0, min(1.0, px))
+                py = max(0.0, min(1.0, py))
+                normalized_points.extend([px, py])
 
-                # 构建 YOLO 标签行: class_id x1 y1 x2 y2 ... xn yn
+            # 构建 YOLO 标签行: class_id x1 y1 x2 y2 ... xn yn
             label_line = f"{yolo_class_id} " + " ".join(f"{v:.6f}" for v in normalized_points)
             yolo_lines.append(label_line)
             logger.debug(f"成功转换标注: {class_name} ({len(normalized_points)//2} 个顶点)")
 
-            # 写入 YOLO 标签文件
-            if yolo_lines:
-                # 保存图像
-                img_filename = rgb_file.name
-                dst_img_path = yolo_path / "images" / split / img_filename
-                if not dst_img_path.exists():
-                    shutil.copy2(rgb_file, dst_img_path)
-                logger.debug(f"保存图像: {dst_img_path}")
+        # 所有 mask 处理完成后，写入 YOLO 标签文件
+        if yolo_lines:
+            # 保存图像
+            img_filename = rgb_file.name
+            dst_img_path = yolo_path / "images" / split / img_filename
+            if not dst_img_path.exists():
+                shutil.copy2(rgb_file, dst_img_path)
+            logger.debug(f"保存图像: {dst_img_path}")
 
-                # 保存标签
-                label_filename = Path(img_filename).stem + ".txt"
-                dst_label_path = yolo_path / "labels" / split / label_filename
+            # 保存标签
+            label_filename = Path(img_filename).stem + ".txt"
+            dst_label_path = yolo_path / "labels" / split / label_filename
 
-                with open(dst_label_path, 'w', encoding='utf-8') as f:
-                    f.write("\n".join(yolo_lines))
-                logger.debug(f"保存标签: {dst_label_path} ({len(yolo_lines)} 个标注)")
+            with open(dst_label_path, 'w', encoding='utf-8') as f:
+                f.write("\n".join(yolo_lines))
+            logger.debug(f"保存标签: {dst_label_path} ({len(yolo_lines)} 个标注)")
 
-                # 更新标注计数
-                if split == "train":
-                    train_annotations += len(yolo_lines)
-                else:
-                    val_annotations += len(yolo_lines)
+            # 更新标注计数
+            if split == "train":
+                train_annotations += len(yolo_lines)
             else:
-                logger.debug(f"图像 {rgb_file.name} 未生成有效标注")
+                val_annotations += len(yolo_lines)
+        else:
+            logger.debug(f"图像 {rgb_file.name} 未生成有效标注")
 
         # 进度显示
         if (idx + 1) % 50 == 0:

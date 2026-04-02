@@ -189,6 +189,31 @@ def convert_to_yolo(
 
     logger.info(f"🔄 开始处理 {len(rgb_files)} 张图像...")
 
+    # 预先收集所有文件 - 使用字典按文件名索引
+    instance_files = {}
+    mapping_files = {}
+
+    # 查找所有分割文件
+    instance_dir = data_path / "instance_segmentation"
+    if instance_dir.exists():
+        for file in instance_dir.glob("instance_segmentation_*.png"):
+            # 直接用 RGB 文件名作为 key，方便直接匹配
+            # 例如: rgb_0001.png -> instance_segmentation_0001.png
+            instance_files[file.stem] = file
+
+    # 查找所有映射文件（优先使用 semantics_mapping 版本）
+    for file in instance_dir.glob("instance_segmentation_semantics_mapping_*.json"):
+        mapping_files[file.stem] = file
+
+    # 如果没有 semantics_mapping，使用简化版本
+    for file in instance_dir.glob("instance_segmentation_mapping_*.json"):
+        stem = file.stem
+        # 避免覆盖 semantics_mapping 版本
+        if "semantics" not in stem and stem not in mapping_files:
+            mapping_files[stem] = file
+
+    logger.debug(f"找到 {len(instance_files)} 个分割文件, {len(mapping_files)} 个映射文件")
+
     for idx, rgb_file in enumerate(rgb_files):
         # 确定数据集划分
         if idx in train_indices:
@@ -198,6 +223,23 @@ def convert_to_yolo(
             split = "val"
             val_count_processed += 1
         else:
+            continue
+
+        logger.debug(f"处理图像 {idx + 1}/{len(rgb_files)}: {rgb_file.name}")
+
+        # 使用 RGB 文件名（不含扩展名）查找对应的分割和映射文件
+        rgb_stem = rgb_file.stem
+
+        # 检查对应的分割文件是否存在
+        if rgb_stem not in instance_files:
+            logger.warning(f"跳过无对应分割的图像: {rgb_file} (未找到分割文件)")
+            skipped_images += 1
+            continue
+
+        # 检查对应的映射文件是否存在
+        if rgb_stem not in mapping_files:
+            logger.warning(f"跳过无映射的图像: {rgb_file} (未找到映射文件)")
+            skipped_images += 1
             continue
 
         # 读取 RGB 图像
@@ -210,15 +252,8 @@ def convert_to_yolo(
         height, width = image.shape[:2]
         logger.debug(f"图像尺寸: {width}x{height}")
 
-        # 构建对应的 instance_segmentation 文件名
-        instance_file = data_path / "instance_segmentation" / f"instance_segmentation_{idx:06d}.png"
-
-        if not instance_file.exists():
-            logger.warning(f"跳过无对应分割的图像: {rgb_file}")
-            skipped_images += 1
-            continue
-
         # 读取实例分割 mask
+        instance_file = instance_files[rgb_stem]
         mask_image = cv2.imread(str(instance_file), cv2.IMREAD_GRAYSCALE)
         if mask_image is None:
             logger.warning(f"跳过无效分割: {instance_file}")
@@ -232,12 +267,7 @@ def convert_to_yolo(
             continue
 
         # 读取映射文件
-        mapping_file = data_path / "instance_segmentation" / f"instance_segmentation_semantics_mapping_{idx:06d}.json"
-        if not mapping_file.exists():
-            logger.warning(f"跳过无映射的图像: {rgb_file}")
-            skipped_images += 1
-            continue
-
+        mapping_file = mapping_files[rgb_stem]
         with open(mapping_file, 'r', encoding='utf-8') as f:
             mapping_data = json.load(f)
 

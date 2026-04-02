@@ -532,17 +532,20 @@ def capture_yolo_dataset():
     # 注册自定义 Writer
     rep.writers.register_writer(YOLOSegWriter)
 
-    # 获取 Writer 实例并初始化
-    writer = rep.writers.get(
-        name="YOLOSegWriter",
-        init_params={
-            "output_dir": output_dir,
-            "total_frames": num_images_to_generate,
-            "train_ratio": TRAIN_RATIO
-        },
-        render_products=render_product
+    # 获取 Writer 实例
+    writer = rep.writers.get("YOLOSegWriter")
+
+    # 初始化 Writer
+    writer.initialize(
+        output_dir=output_dir,
+        total_frames=num_images_to_generate,
+        train_ratio=TRAIN_RATIO
     )
 
+    # 挂载到 render_product（必须传入列表）
+    writer.attach([render_product])
+
+    print(f"[DEBUG] Writer annotators: {writer.annotators}")
     print("[CheckPoint 11] ✅ Writer 挂载完成。")
 
     print(f"📂 数据将保存到: {output_dir}")

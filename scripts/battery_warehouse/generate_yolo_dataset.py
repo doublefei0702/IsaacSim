@@ -94,6 +94,19 @@ class YOLOSegWriter(rep.Writer):
         # 缓存数据，等待最后写入
         self._cached_data: List[Tuple[int, str, np.ndarray, Dict]] = []
 
+        # 日志文件
+        self._log_file = None
+        self._write_call_count = 0
+
+    def _log(self, msg: str):
+        """
+        输出日志到控制台和文件。
+        """
+        print(msg)
+        if self._log_file:
+            self._log_file.write(msg + "\n")
+            self._log_file.flush()
+
     def initialize(self, **kwargs):
         """
         初始化 Writer 参数。
@@ -113,6 +126,10 @@ class YOLOSegWriter(rep.Writer):
         os.makedirs(os.path.join(self._output_dir, "labels", "train"), exist_ok=True)
         os.makedirs(os.path.join(self._output_dir, "labels", "val"), exist_ok=True)
 
+        # 创建日志文件
+        log_path = os.path.join(self._output_dir, "writer_debug.log")
+        self._log_file = open(log_path, 'w', encoding='utf-8')
+
         # 生成训练/验证集索引
         all_indices = list(range(self._total_frames))
         random.shuffle(all_indices)
@@ -123,12 +140,14 @@ class YOLOSegWriter(rep.Writer):
         self._frame_id = 0
         self._initialized = True
         self._cached_data = []
+        self._write_call_count = 0
 
-        print(f"[YOLOSegWriter] 初始化完成:")
-        print(f"  - 输出目录: {self._output_dir}")
-        print(f"  - 总帧数: {self._total_frames}")
-        print(f"  - 训练集: {len(self._train_indices)} 帧")
-        print(f"  - 验证集: {len(self._valid_indices)} 帧")
+        self._log(f"[YOLOSegWriter] 初始化完成:")
+        self._log(f"  - 输出目录: {self._output_dir}")
+        self._log(f"  - 总帧数: {self._total_frames}")
+        self._log(f"  - 训练集: {len(self._train_indices)} 帧")
+        self._log(f"  - 验证集: {len(self._valid_indices)} 帧")
+        self._log(f"  - 日志文件: {log_path}")
 
     def write(self, data: dict):
         """
@@ -171,37 +190,56 @@ class YOLOSegWriter(rep.Writer):
 
             # 进度提示
             if (self._frame_id + 1) % 20 == 0:
-                print(f"[YOLOSegWriter] 已缓存 {self._frame_id + 1}/{self._total_frames} 帧...")
+                self._log(f"[YOLOSegWriter] 已缓存 {self._frame_id + 1}/{self._total_frames} 帧...")
 
             self._frame_id += 1
 
         except Exception as e:
-            print(f"[YOLOSegWriter] 处理帧 {self._frame_id} 时出错: {e}")
+            self._log(f"[YOLOSegWriter] 处理帧 {self._frame_id} 时出错: {e}")
+            import traceback
+            self._log(traceback.format_exc())
             self._frame_id += 1
 
     def on_final_frame(self):
         """
         所有帧处理完成后调用，写入所有缓存的数据。
         """
-        print(f"\n[YOLOSegWriter] 开始写入 {len(self._cached_data)} 帧数据...")
+        self._log(f"\n[YOLOSegWriter] on_final_frame() 被调用")
+        self._log(f"[YOLOSegWriter] write() 总调用次数: {self._write_call_count}")
+        self._log(f"[YOLOSegWriter] 缓存数据量: {len(self._cached_data)} 帧")
+
+        if len(self._cached_data) == 0:
+            self._log("[YOLOSegWriter] ⚠️ 警告: 没有缓存任何数据！")
+            self._log("[YOLOSegWriter] 可能的原因:")
+            self._log("  1. write() 方法没有被 Replicator 调用")
+            self._log("  2. 数据提取失败（RGB 或 instance_segmentation 为空）")
+            self._log("  3. Writer 没有正确挂载到 render_product")
+
+        self._log(f"\n[YOLOSegWriter] 开始写入 {len(self._cached_data)} 帧数据...")
 
         for frame_id, split, rgb_data, instance_dict in self._cached_data:
             try:
                 self._write_single_frame(frame_id, split, rgb_data, instance_dict)
             except Exception as e:
-                print(f"[YOLOSegWriter] 写入帧 {frame_id} 时出错: {e}")
+                self._log(f"[YOLOSegWriter] 写入帧 {frame_id} 时出错: {e}")
+                import traceback
+                self._log(traceback.format_exc())
 
         # 输出统计信息
         train_count = sum(1 for _, s, _, _ in self._cached_data if s == "train")
         val_count = sum(1 for _, s, _, _ in self._cached_data if s == "val")
 
-        print(f"\n[YOLOSegWriter] ✅ 数据集生成完成!")
-        print(f"  - 训练集: {train_count} 帧")
-        print(f"  - 验证集: {val_count} 帧")
-        print(f"  - 输出目录: {self._output_dir}")
+        self._log(f"\n[YOLOSegWriter] ✅ 数据集生成完成!")
+        self._log(f"  - 训练集: {train_count} 帧")
+        self._log(f"  - 验证集: {val_count} 帧")
+        self._log(f"  - 输出目录: {self._output_dir}")
 
         # 生成 data.yaml 配置文件
         self._generate_data_yaml()
+
+        # 关闭日志文件
+        if self._log_file:
+            self._log_file.close()
 
     def _extract_rgb_data(self, data: dict) -> Optional[np.ndarray]:
         """

@@ -32,7 +32,7 @@ print("[CheckPoint 4] ✅ 模块导入完毕。")
 # ============================================================================
 
 # 采集帧数
-num_images_to_generate = 200
+num_images_to_generate = 500
 
 # 场景路径
 scene_path = "/root/gpufree-data/IsaacSim/scenes/battery_warehouse/scene_01_completed.usd"
@@ -90,6 +90,7 @@ def capture_dataset():
         output_dir=output_dir,
         rgb=True,
         instance_segmentation=True,
+        colorize_instance_segmentation=False,  # 输出原始灰度 mask，便于后续处理
         image_output_format="jpg"
     )
 

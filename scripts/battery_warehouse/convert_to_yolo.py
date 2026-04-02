@@ -21,8 +21,9 @@ import argparse
 import random
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 import shutil
+import re
 
 import numpy as np
 import cv2
@@ -31,15 +32,6 @@ import cv2
 # ============================================================================
 # 配置区域
 # ============================================================================
-
-# 类别名称到 YOLO class_id 的映射
-CLASS_NAME_TO_ID = {
-    "crate": 0,
-    "crate_stack": 1,
-    "person": 2,
-    "storage_rack": 3,
-    "floor": 4,
-}
 
 # YOLO 类别名称（用于 data.yaml）
 YOLO_CLASS_NAMES = {
@@ -50,12 +42,12 @@ YOLO_CLASS_NAMES = {
     4: "floor",
 }
 
-# 忽略的类别
-IGNORE_LABELS = {"BACKGROUND", "UNLABELLED", "wall", "ceiling", "fire_extinguisher", "door"}
+# 忽略的类别（原始路径中包含这些关键词则忽略）
+IGNORE_KEYWORDS = {"BACKGROUND", "UNLABELLED", "wall", "ceiling", "fire_extinguisher", "door"}
 
 # 过滤阈值
-MIN_AREA = 6400          # 最小面积阈值（像素数）
-MIN_DIMENSION = 80       # 最小宽高阈值（像素）
+MIN_AREA = 1600          # 最小面积阈值（像素数）
+MIN_DIMENSION = 40       # 最小宽高阈值（像素）
 
 # 训练/验证集划分比例
 TRAIN_RATIO = 0.8
@@ -65,7 +57,53 @@ TRAIN_RATIO = 0.8
 # 核心转换函数
 # ============================================================================
 
-def mask_to_polygon(mask: np.ndarray) -> np.ndarray:
+def parse_class_info(class_info) -> Optional[str]:
+    """
+    从映射值解析出类别名称。
+
+    Args:
+        class_info: 可以是字符串（如 "/World/Generated/Crate_new_38/..."）
+                   或字典（如 {"class": "crate"}）
+
+    Returns:
+        类别名称如 "crate", "person", "rack", "floor"，或 None 如果应忽略
+    """
+    # 处理字典格式: {"class": "crate"}
+    if isinstance(class_info, dict):
+        class_name = class_info.get("class", "")
+        if class_name in IGNORE_KEYWORDS:
+            return None
+        return class_name
+
+    # 处理字符串格式: "/World/Generated/Crate_new_38/SM_CratePlasticNote_A_01"
+    if not isinstance(class_info, str):
+        return None
+
+    upper_path = class_info.upper()
+
+    # 忽略列表
+    for ignore in IGNORE_KEYWORDS:
+        if ignore.upper() in upper_path:
+            return None
+
+    # 解析类别
+    if "CRATE_NEW" in upper_path:
+        return "crate"
+    elif "CRATE_STACK" in upper_path:
+        return "crate_stack"
+    elif "HUMAN_" in upper_path:
+        return "person"
+    elif "RACKSHELF_" in upper_path:
+        return "rack"
+    elif "/FLOOR" in upper_path or class_info.endswith("/floor"):
+        return "floor"
+    else:
+        # 其他类别，返回 None 表示忽略
+        logging.getLogger(__name__).warning(f"未识别的类别路径: {class_info}")
+        return None
+
+
+def mask_to_polygon(mask: np.ndarray) -> Optional[np.ndarray]:
     """
     将 mask 转换为多边形轮廓。
 
@@ -127,11 +165,11 @@ def convert_to_yolo(
     转换 BasicWriter 数据集为 YOLO 格式。
 
     Args:
-        data_dir: BasicWriter 数据集目录
+        data_dir: BasicWriter 数据集目录（所有文件在同一目录下）
         yolo_dir: YOLO 输出目录
         train_ratio: 训练集比例
     """
-    logger = setup_logging(log_level="DEBUG")
+    logger = setup_logging(log_level="INFO")
     data_path = Path(data_dir)
     yolo_path = Path(yolo_dir)
 
@@ -149,21 +187,13 @@ def convert_to_yolo(
     (yolo_path / "labels" / "val").mkdir(parents=True, exist_ok=True)
     logger.info("✅ 成功创建输出目录结构")
 
-    # 读取 RGB 文件列表
-    rgb_dir = data_path / "rgb"
-    if not rgb_dir.exists():
-        logger.error(f"未找到 RGB 目录 {rgb_dir}")
-        raise FileNotFoundError(f"未找到 RGB 目录 {rgb_dir}")
-
-    rgb_files = []
-    # 查找所有 jpg 和 png 文件
-    for ext in ['*.jpg', '*.png']:
-        rgb_files.extend(sorted(list(rgb_dir.glob(ext))))
+    # 读取 RGB 文件列表（直接在 data_dir 下）
+    rgb_files = sorted(list(data_path.glob("rgb_*.jpg"))) + sorted(list(data_path.glob("rgb_*.png")))
     logger.info(f"📊 找到 {len(rgb_files)} 个 RGB 文件")
 
     if not rgb_files:
-        logger.error("RGB 目录中没有找到 .jpg 或 .png 文件")
-        raise FileNotFoundError("RGB 目录中没有找到 .jpg 或 .png 文件")
+        logger.error("未找到 rgb_*.jpg 或 rgb_*.png 文件")
+        raise FileNotFoundError("未找到 RGB 文件")
 
     # 随机划分训练/验证集
     random.seed(42)  # 固定随机种子，确保可复现
@@ -178,13 +208,38 @@ def convert_to_yolo(
     logger.info(f"  - 训练集: {len(train_indices)} 张")
     logger.info(f"  - 验证集: {len(val_indices)} 张")
 
-    # 处理每张图像
-    train_count_processed = 0
-    val_count_processed = 0
-    train_annotations = 0
-    val_annotations = 0
-    skipped_images = 0
-    error_images = 0
+    # 预处理：建立文件索引字典
+    # instance_segmentation_XXXX.png → 文件路径
+    instance_files = {}
+    for f in data_path.glob("instance_segmentation_*.png"):
+        # 从文件名提取索引 XXXX
+        match = re.search(r'(\d+)', f.stem)
+        if match:
+            idx = match.group(1)
+            instance_files[idx] = f
+
+    # mapping 文件: instance_segmentation_mapping_XXXX.json 或 instance_segmentation_semantics_mapping_XXXX.json
+    mapping_files = {}
+    semantics_mapping_files = {}
+
+    for f in data_path.glob("instance_segmentation_semantics_mapping_*.json"):
+        match = re.search(r'(\d+)', f.stem)
+        if match:
+            semantics_mapping_files[match.group(1)] = f
+
+    for f in data_path.glob("instance_segmentation_mapping_*.json"):
+        match = re.search(r'(\d+)', f.stem)
+        if match:
+            idx = match.group(1)
+            # 优先使用 semantics_mapping
+            if idx not in mapping_files:
+                mapping_files[idx] = f
+
+    # semantics_mapping 优先级更高
+    for idx, f in semantics_mapping_files.items():
+        mapping_files[idx] = f
+
+    logger.info(f"📊 文件统计: {len(instance_files)} 个分割文件, {len(mapping_files)} 个映射文件")
 
     # 统计信息
     stats = {
@@ -192,175 +247,107 @@ def convert_to_yolo(
         'filtered_by_area': 0,
         'filtered_by_dimension': 0,
         'filtered_by_class': 0,
-        'failed_conversions': 0
+        'failed_conversions': 0,
+        'skipped_images': 0,
+        'processed_images': 0,
     }
 
     logger.info(f"🔄 开始处理 {len(rgb_files)} 张图像...")
-
-    # 预先收集所有文件 - 使用字典按文件名索引
-    instance_files = {}
-    mapping_files = {}
-
-    # 查找所有分割文件
-    instance_dir = data_path / "instance_segmentation"
-    if instance_dir.exists():
-        instance_png_files = sorted(list(instance_dir.glob("instance_segmentation_*.png")))
-        logger.info(f"🔍 在 {instance_dir} 中查找分割文件，找到 {len(instance_png_files)} 个:")
-        for file in instance_png_files:
-            logger.info(f"   - {file.name}")
-            instance_files[file.stem] = file
-    else:
-        logger.warning(f"⚠️ 分割目录不存在: {instance_dir}")
-
-    # 查找所有映射文件（优先使用 semantics_mapping 版本）
-    logger.info("🔍 查找映射文件 (优先 semantics_mapping 版本):")
-    semantics_mapping_files = sorted(list(instance_dir.glob("instance_segmentation_semantics_mapping_*.json")))
-    for file in semantics_mapping_files:
-        mapping_files[file.stem] = file
-        logger.info(f"   ✅ semantics_mapping: {file.name}")
-
-    # 如果没有 semantics_mapping，使用简化版本
-    simple_mapping_files = sorted(list(instance_dir.glob("instance_segmentation_mapping_*.json")))
-    for file in simple_mapping_files:
-        stem = file.stem
-        # 避免覆盖 semantics_mapping 版本
-        if "semantics" not in stem and stem not in mapping_files:
-            mapping_files[stem] = file
-            logger.info(f"   📄 simple_mapping: {file.name}")
-        else:
-            logger.debug(f"   ⏭️ 跳过 (已被 semantics_mapping 覆盖): {file.name}")
-
-    logger.info(f"📊 文件统计: {len(instance_files)} 个分割文件, {len(mapping_files)} 个映射文件")
 
     for idx, rgb_file in enumerate(rgb_files):
         # 确定数据集划分
         if idx in train_indices:
             split = "train"
-            train_count_processed += 1
         elif idx in val_indices:
             split = "val"
-            val_count_processed += 1
         else:
             continue
+
+        # 从 rgb_0000.jpg 提取索引 0000
+        match = re.search(r'(\d+)', rgb_file.stem)
+        if not match:
+            logger.warning(f"无法从 {rgb_file.name} 提取索引，跳过")
+            stats['skipped_images'] += 1
+            continue
+        idx_match = match.group(1)
 
         logger.info(f"📷 处理图像 {idx + 1}/{len(rgb_files)}: {rgb_file.name} [{split}]")
 
-        # 使用 RGB 文件名（不含扩展名）查找对应的分割和映射文件
-        rgb_stem = rgb_file.stem
-
-        # 从 rgb_0000 提取索引，构建 instance_segmentation_0000
-        # 假设 RGB 文件名格式为 xxx_NNNN.ext
-        idx_match = rgb_stem.split('_')[-1] if '_' in rgb_stem else rgb_stem
-        instance_stem = f"instance_segmentation_{idx_match}"
-
-        logger.info(f"   🔑 RGB stem: '{rgb_stem}' → 索引: '{idx_match}' → 查找: '{instance_stem}'")
-
-        # 检查对应的分割文件是否存在
-        if instance_stem not in instance_files:
-            logger.warning(f"   ⚠️ 未找到分割文件: {instance_stem}.png")
-            logger.warning(f"   可用的分割文件: {list(instance_files.keys())}")
-            skipped_images += 1
+        # 查找分割文件
+        if idx_match not in instance_files:
+            logger.warning(f"   ⚠️ 未找到分割文件: instance_segmentation_{idx_match}.png")
+            stats['skipped_images'] += 1
             continue
-        else:
-            logger.info(f"   ✅ 找到分割文件: {instance_files[instance_stem].name}")
 
-        # 检查对应的映射文件是否存在
-        if instance_stem not in mapping_files:
-            logger.warning(f"   ⚠️ 未找到映射文件: {instance_stem}_mapping.json 或 _semantics_mapping.json")
-            logger.warning(f"   可用的映射文件: {list(mapping_files.keys())}")
-            skipped_images += 1
+        # 查找映射文件
+        if idx_match not in mapping_files:
+            logger.warning(f"   ⚠️ 未找到映射文件: instance_segmentation_mapping_{idx_match}.json")
+            stats['skipped_images'] += 1
             continue
-        else:
-            logger.info(f"   ✅ 找到映射文件: {mapping_files[instance_stem].name}")
 
         # 读取 RGB 图像
         image = cv2.imread(str(rgb_file))
         if image is None:
             logger.warning(f"跳过无效图像: {rgb_file}")
-            skipped_images += 1
+            stats['skipped_images'] += 1
             continue
 
         height, width = image.shape[:2]
-        logger.debug(f"图像尺寸: {width}x{height}")
 
-        # 读取实例分割 mask
-        instance_file = instance_files[instance_stem]
-        mask_image = cv2.imread(str(instance_file), cv2.IMREAD_GRAYSCALE)
+        # 读取实例分割 mask（灰度图，mask_id 是整数）
+        instance_file = instance_files[idx_match]
+        mask_image = cv2.imread(str(instance_file), cv2.IMREAD_UNCHANGED)
         if mask_image is None:
             logger.warning(f"跳过无效分割: {instance_file}")
-            skipped_images += 1
+            stats['skipped_images'] += 1
             continue
 
         # 检查 mask 和图像尺寸是否匹配
         if mask_image.shape[:2] != (height, width):
-            logger.warning(f"Mask 尺寸 {mask_image.shape[:2]} 与图像尺寸 {width}x{height} 不匹配，跳过: {rgb_file}")
-            skipped_images += 1
+            logger.warning(f"Mask 尺寸 {mask_image.shape[:2]} 与图像尺寸 {width}x{height} 不匹配，跳过")
+            stats['skipped_images'] += 1
             continue
 
-        # 读取映射文件
-        mapping_file = mapping_files[instance_stem]
+        # 读取映射文件（格式: {int_mask_id: class_path_string}）
+        mapping_file = mapping_files[idx_match]
         with open(mapping_file, 'r', encoding='utf-8') as f:
             mapping_data = json.load(f)
 
-        # 解析映射数据
-        id_to_labels = {}
-        if isinstance(mapping_data, dict):
-            id_to_labels = mapping_data
-        else:
-            # 兼容不同的映射格式
-            logger.debug(f"解析映射数据格式: {type(mapping_data)}")
-            for color_str, class_info in mapping_data.items():
-                # 解析颜色字符串: "(R, G, B, A)"
-                if color_str.startswith("("):
-                    values = [int(x.strip()) for x in color_str.strip("()").split(",")]
-                    if len(values) >= 3:
-                        # 创建唯一的 ID
-                        color_int = (values[0] << 24) | (values[1] << 16) | (values[2] << 8) | (255 if len(values) < 4 else values[3])
-                        id_to_labels[color_int] = class_info
-                        logger.debug(f"解析颜色 ID: {color_int} -> {class_info}")
-                    else:
-                        logger.warning(f"颜色字符串格式错误: {color_str}")
-                else:
-                    color_int = int(color_str)
-                    id_to_labels[color_int] = class_info
-
-        logger.debug(f"解析得到 {len(id_to_labels)} 个映射关系")
-
         # 处理每个实例 ID
         yolo_lines = []
-        unique_masks = np.unique(mask_image)
-        stats['total_masks'] += len(unique_masks) - 1  # 减去背景 (0)
+        unique_mask_ids = np.unique(mask_image)
+        stats['total_masks'] += len(unique_mask_ids) - 1  # 减去背景 (0)
 
-        for mask_id in unique_masks:
-            # 跳过背景和未标签
+        for mask_id in unique_mask_ids:
             if mask_id == 0:
-                continue
+                continue  # 跳过背景
 
-            # 获取类别信息
-            label_info = id_to_labels.get(mask_id, {})
-            if not label_info:
+            # 获取类别路径
+            class_path = mapping_data.get(str(mask_id)) or mapping_data.get(mask_id)
+            if not class_path:
                 logger.debug(f"未找到 mask_id={mask_id} 的映射信息")
                 continue
 
             # 解析类别名称
-            if isinstance(label_info, dict):
-                class_name = label_info.get("class", "")
-            elif isinstance(label_info, str):
-                class_name = label_info
-            else:
-                logger.debug(f"无效的 label_info 格式: {type(label_info)}")
-                continue
-
-            # 跳过忽略类别
-            if class_name in IGNORE_LABELS:
+            class_name = parse_class_info(class_path)
+            if class_name is None:
                 stats['filtered_by_class'] += 1
-                logger.debug(f"忽略类别: {class_name}")
+                logger.debug(f"忽略类别: {class_path}")
                 continue
 
-            # 映射到 YOLO class_id
-            yolo_class_id = CLASS_NAME_TO_ID.get(class_name)
+            # 检查是否在定义的类别中
+            if class_name not in YOLO_CLASS_NAMES.values():
+                stats['filtered_by_class'] += 1
+                logger.debug(f"未知类别: {class_name}")
+                continue
+
+            # 获取 YOLO class_id
+            yolo_class_id = None
+            for cid, cname in YOLO_CLASS_NAMES.items():
+                if cname == class_name:
+                    yolo_class_id = cid
+                    break
             if yolo_class_id is None:
-                logger.warning(f"未知的类别名称: {class_name}")
                 continue
 
             # 提取二值掩码
@@ -368,24 +355,23 @@ def convert_to_yolo(
 
             # 检查面积
             area = np.sum(binary_mask)
-            logger.debug(f"Mask ID {mask_id} ({class_name}) 面积: {area}")
-
             if area < MIN_AREA:
                 stats['filtered_by_area'] += 1
-                logger.debug(f"过滤: 面积 {area} < {MIN_AREA}")
+                logger.debug(f"过滤: mask_id={mask_id} 面积 {area} < {MIN_AREA}")
                 continue
 
             # 转换为多边形
             polygon = mask_to_polygon(binary_mask)
             if polygon is None:
                 logger.warning(f"无法为 mask_id={mask_id} 生成多边形")
+                stats['failed_conversions'] += 1
                 continue
 
             # 检查边界框尺寸
             _, _, w, h = cv2.boundingRect(polygon)
             if w < MIN_DIMENSION or h < MIN_DIMENSION:
                 stats['filtered_by_dimension'] += 1
-                logger.debug(f"过滤: 边界框尺寸 {w}x{h} < {MIN_DIMENSION}x{MIN_DIMENSION}")
+                logger.debug(f"过滤: mask_id={mask_id} 边界框 {w}x{h} < {MIN_DIMENSION}")
                 continue
 
             # 归一化坐标到 [0, 1]
@@ -401,36 +387,28 @@ def convert_to_yolo(
             # 构建 YOLO 标签行: class_id x1 y1 x2 y2 ... xn yn
             label_line = f"{yolo_class_id} " + " ".join(f"{v:.6f}" for v in normalized_points)
             yolo_lines.append(label_line)
-            logger.debug(f"成功转换标注: {class_name} ({len(normalized_points)//2} 个顶点)")
+            logger.debug(f"   ✅ mask_id={mask_id} -> {class_name} ({len(normalized_points)//2} 个顶点)")
 
-        # 所有 mask 处理完成后，写入 YOLO 标签文件
+        # 写入 YOLO 标签文件
         if yolo_lines:
             # 保存图像
-            img_filename = rgb_file.name
-            dst_img_path = yolo_path / "images" / split / img_filename
-            if not dst_img_path.exists():
-                shutil.copy2(rgb_file, dst_img_path)
-            logger.debug(f"保存图像: {dst_img_path}")
+            dst_img_path = yolo_path / "images" / split / rgb_file.name
+            shutil.copy2(rgb_file, dst_img_path)
 
             # 保存标签
-            label_filename = Path(img_filename).stem + ".txt"
+            label_filename = rgb_file.stem + ".txt"
             dst_label_path = yolo_path / "labels" / split / label_filename
 
             with open(dst_label_path, 'w', encoding='utf-8') as f:
                 f.write("\n".join(yolo_lines))
-            logger.debug(f"保存标签: {dst_label_path} ({len(yolo_lines)} 个标注)")
 
-            # 更新标注计数
-            if split == "train":
-                train_annotations += len(yolo_lines)
-            else:
-                val_annotations += len(yolo_lines)
+            stats['processed_images'] += 1
+            logger.info(f"   ✅ 保存: {len(yolo_lines)} 个标注")
         else:
-            logger.debug(f"图像 {rgb_file.name} 未生成有效标注")
-
-        # 进度显示
-        if (idx + 1) % 50 == 0:
-            logger.info(f"已处理 {idx + 1}/{len(rgb_files)} 张图像...")
+            # 没有有效标注时，也复制图像但不创建标签文件
+            dst_img_path = yolo_path / "images" / split / rgb_file.name
+            shutil.copy2(rgb_file, dst_img_path)
+            logger.debug(f"   ⚠️ 无有效标注，复制图像但不创建标签文件")
 
     # 生成 data.yaml 配置文件
     generate_data_yaml(yolo_path)
@@ -440,11 +418,8 @@ def convert_to_yolo(
     logger.info("✅ 转换完成！")
     logger.info("=" * 60)
     logger.info(f"\n📊 统计信息:")
-    logger.info(f"  训练集: {train_count_processed} 张图像, {train_annotations} 个标注")
-    logger.info(f"  验证集: {val_count_processed} 张图像, {val_annotations} 个标注")
-    logger.info(f"  总计: {train_count_processed + val_count_processed} 张图像, {train_annotations + val_annotations} 个标注")
-    logger.info(f"  跳过图像: {skipped_images} 张")
-    logger.info(f"  错误图像: {error_images} 张")
+    logger.info(f"  处理图像: {stats['processed_images']} 张")
+    logger.info(f"  跳过图像: {stats['skipped_images']} 张")
     logger.info(f"\n🔍 过滤统计:")
     logger.info(f"  总掩码数: {stats['total_masks']}")
     logger.info(f"  按面积过滤: {stats['filtered_by_area']}")
@@ -477,7 +452,7 @@ names:
     yaml_path_final = yolo_path / "data.yaml"
     with open(yaml_path_final, 'w', encoding='utf-8') as f:
         f.write(yaml_content)
-
+    logging.getLogger(__name__).info(f"✅ 已生成 data.yaml")
 
 
 def main():

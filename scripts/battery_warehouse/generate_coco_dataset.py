@@ -113,14 +113,12 @@ def capture_coco_dataset():
     coco_writer = rep.writers.get("CocoWriter")
 
     # 初始化 CocoWriter
-    # 参考: omni.replicator.core.writers_default.CocoWriter
+    # 注意：不传入 coco_categories，使用内置 COCO 标签
+    # 分割功能可能有兼容性问题，先只启用 RGB + 边界框
     coco_writer.initialize(
         output_dir=output_dir,
-        coco_categories=COCO_CATEGORIES,
         semantic_types=SEMANTIC_TYPES,
         rgb=True,                      # 输出 RGB 图像
-        semantic_segmentation=True,        # 输出语义分割
-        instance_segmentation=True,        # 输出实例分割
         bounding_box_2d_tight=True,     # 输出 2D 边界框
         image_output_format="jpg",         # 图像格式
     )

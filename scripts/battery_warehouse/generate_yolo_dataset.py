@@ -49,7 +49,7 @@ IGNORE_CLASSES = {"BACKGROUND", "UNLABELLED", "wall", "ceiling", "fire_extinguis
 
 # 过滤阈值
 MIN_AREA = 1600          # 最小面积阈值（像素数）
-MIN_DIMENSION = 40       # 最小宽高阈值（像素）
+MIN_DIMENSION = 60       # 最小宽高阈值（像素）
 
 # 训练/验证集划分比例
 TRAIN_RATIO = 0.8
@@ -486,10 +486,10 @@ def capture_yolo_dataset():
     主函数：采集 YOLO 分割格式数据集。
     """
     # 场景路径（根据实际环境修改）
-    scene_path = "/root/gpufree-data/battery_warehouse_SDG/assets/scene_01_completed.usd"
+    scene_path = "/root/gpufree-data/IsaacSim/scenes/battery_warehouse/scene_01_completed.usd"
 
     # 输出目录
-    output_dir = "/root/gpufree-data/battery_warehouse_SDG/output_yolo"
+    output_dir = "/root/gpufree-data/output_yolo"
 
     # 采集帧数
     num_images_to_generate = 200

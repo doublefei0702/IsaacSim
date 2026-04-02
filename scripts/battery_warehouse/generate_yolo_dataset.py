@@ -158,24 +158,48 @@ class YOLOSegWriter(rep.Writer):
                   格式: {"rgb": {"data": np.ndarray},
                          "instance_segmentation_fast": {"data": np.ndarray, "info": dict}}
         """
+        self._write_call_count += 1
+
+        # 首次调用时输出 data 结构
+        if self._write_call_count == 1:
+            self._log(f"\n[DEBUG] write() 第 1 次调用")
+            self._log(f"[DEBUG] data 类型: {type(data)}")
+            self._log(f"[DEBUG] data 顶层键: {list(data.keys()) if isinstance(data, dict) else 'N/A'}")
+
+            # 详细输出 data 结构
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    self._log(f"[DEBUG]   data['{key}'] 类型: {type(value)}")
+                    if isinstance(value, dict):
+                        self._log(f"[DEBUG]     子键: {list(value.keys())}")
+
         if not self._initialized:
-            print("[YOLOSegWriter] 错误: Writer 未初始化！")
+            self._log("[YOLOSegWriter] 错误: Writer 未初始化！")
             return
 
         try:
             # 提取 RGB 数据
             rgb_data = self._extract_rgb_data(data)
             if rgb_data is None:
-                print(f"[YOLOSegWriter] 警告: 帧 {self._frame_id} 无法获取 RGB 数据")
+                self._log(f"[YOLOSegWriter] 警告: 帧 {self._frame_id} 无法获取 RGB 数据")
+                if self._write_call_count <= 3:
+                    self._log(f"[DEBUG] RGB 提取失败，data 键: {list(data.keys()) if isinstance(data, dict) else 'N/A'}")
                 self._frame_id += 1
                 return
 
             # 提取实例分割数据
             instance_data, instance_info = self._extract_instance_data(data)
             if instance_data is None:
-                print(f"[YOLOSegWriter] 警告: 帧 {self._frame_id} 无法获取实例分割数据")
+                self._log(f"[YOLOSegWriter] 警告: 帧 {self._frame_id} 无法获取实例分割数据")
+                if self._write_call_count <= 3:
+                    self._log(f"[DEBUG] 实例分割提取失败")
                 self._frame_id += 1
                 return
+
+            # 首次成功提取时输出信息
+            if self._write_call_count <= 3:
+                self._log(f"[DEBUG] 成功提取数据: RGB shape={rgb_data.shape}, instance shape={instance_data.shape}")
+                self._log(f"[DEBUG] instance_info keys: {list(instance_info.keys()) if instance_info else 'None'}")
 
             # 确定当前帧属于训练集还是验证集
             split = "train" if self._frame_id in self._train_indices else "val"
@@ -262,6 +286,21 @@ class YOLOSegWriter(rep.Writer):
                         rgb_dict = rp_data[key]
                         if isinstance(rgb_dict, dict) and "data" in rgb_dict:
                             return rgb_dict["data"]
+                        elif isinstance(rgb_dict, np.ndarray):
+                            return rgb_dict
+
+        # 检查 annotators 结构
+        if "annotators" in data:
+            for anno_name, anno_data in data["annotators"].items():
+                if anno_name in ["rgb", "LdrColor"]:
+                    if isinstance(anno_data, dict):
+                        # 可能是 render_product -> data 结构
+                        for rp_path, rp_data in anno_data.items():
+                            if isinstance(rp_data, dict) and "data" in rp_data:
+                                return rp_data["data"]
+                        # 或者直接有 data 键
+                        if "data" in anno_data:
+                            return anno_data["data"]
 
         return None
 
@@ -293,6 +332,25 @@ class YOLOSegWriter(rep.Writer):
                             inst_info = inst_dict.get("info", {})
                             id_to_labels = inst_info.get("idToLabels", {})
                             return inst_data, id_to_labels
+
+        # 检查 annotators 结构
+        if "annotators" in data:
+            for anno_name, anno_data in data["annotators"].items():
+                if anno_name in ["instance_segmentation_fast", "instance_segmentation"]:
+                    if isinstance(anno_data, dict):
+                        # 可能是 render_product -> data 结构
+                        for rp_path, rp_data in anno_data.items():
+                            if isinstance(rp_data, dict):
+                                inst_data = rp_data.get("data")
+                                inst_info = rp_data.get("info", {})
+                                id_to_labels = inst_info.get("idToLabels", {})
+                                if inst_data is not None:
+                                    return inst_data, id_to_labels
+                        # 或者直接有 data 键
+                        if "data" in anno_data:
+                            inst_info = anno_data.get("info", {})
+                            id_to_labels = inst_info.get("idToLabels", {})
+                            return anno_data["data"], id_to_labels
 
         return None, None
 

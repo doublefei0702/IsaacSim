@@ -147,7 +147,10 @@ def convert_to_yolo(
         logger.error(f"未找到 RGB 目录 {rgb_dir}")
         raise FileNotFoundError(f"未找到 RGB 目录 {rgb_dir}")
 
-    rgb_files = sorted(list(rgb_dir.glob("*.jpg"))) + sorted(list(rgb_dir.glob("*.png")))
+    rgb_files = []
+    # 查找所有 jpg 和 png 文件
+    for ext in ['*.jpg', '*.png']:
+        rgb_files.extend(sorted(list(rgb_dir.glob(ext))))
     logger.info(f"📊 找到 {len(rgb_files)} 个 RGB 文件")
 
     if not rgb_files:

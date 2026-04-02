@@ -244,34 +244,30 @@ def convert_to_yolo(
             id_to_labels = mapping_data
         else:
             # 兼容不同的映射格式
+            logger.debug(f"解析映射数据格式: {type(mapping_data)}")
             for color_str, class_info in mapping_data.items():
                 # 解析颜色字符串: "(R, G, B, A)"
                 if color_str.startswith("("):
-                    try:
-                        values = [int(x.strip()) for x in color_str.strip("()").split(",")]
-                        rgb_id = values[0] << 16 | values[0] << 8 | values[0]
-                        g = (values[1] << 16 | values[1] << 8 | values[1]
-                        b = (values[2] << 16 | values[2] << 8 | values[2]
-                        a = values[3] if len(values) > 3 else 255
-
-                        # 将 RGB 值转换为 int ID
-                        if isinstance(color_str, str):
-                            color_int = (rgb_id << 16) | (g << 8) | (b << 8) | a
-                        else:
-                            color_int = int(color_str)
+                    values = [int(x.strip()) for x in color_str.strip("()").split(",")]
+                    if len(values) >= 3:
+                        # 创建唯一的 ID
+                        color_int = (values[0] << 24) | (values[1] << 16) | (values[2] << 8) | (255 if len(values) < 4 else values[3])
                         id_to_labels[color_int] = class_info
+                        logger.debug(f"解析颜色 ID: {color_int} -> {class_info}")
                     else:
-                        # 尝试直接解析为 int
-                        try:
-                            color_int = int(color_str)
-                            id_to_labels[color_int] = class_info
-                        except:
-                            pass
+                        logger.warning(f"颜色字符串格式错误: {color_str}")
+                else:
+                    color_int = int(color_str)
+                    id_to_labels[color_int] = class_info
+
+        logger.debug(f"解析得到 {len(id_to_labels)} 个映射关系")
 
         # 处理每个实例 ID
         yolo_lines = []
+        unique_masks = np.unique(mask_image)
+        stats['total_masks'] += len(unique_masks) - 1  # 减去背景 (0)
 
-        for mask_id in np.unique(mask_image):
+        for mask_id in unique_masks:
             # 跳过背景和未标签
             if mask_id == 0:
                 continue

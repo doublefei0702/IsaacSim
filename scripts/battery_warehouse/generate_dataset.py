@@ -32,7 +32,7 @@ print("[CheckPoint 4] ✅ 模块导入完毕。")
 # ============================================================================
 
 # 采集帧数
-num_images_to_generate = 500
+num_images_to_generate = 20
 
 # 场景路径
 scene_path = "/root/gpufree-data/IsaacSim/scenes/battery_warehouse/scene_01_completed.usd"

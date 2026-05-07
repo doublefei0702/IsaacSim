@@ -48,13 +48,13 @@ from yolo_writer import YOLOWriter
 # ============================================================================
 
 # 采集帧数
-num_images_to_generate = 800
+num_images_to_generate = 2000
 
 # 场景路径
 scene_path = "/root/gpufree-data/IsaacSim/scenes/battery_warehouse/scene_01_completed.usd"
 
 # 输出目录
-output_dir = "/root/gpufree-data/output_yolo_dataset"
+output_dir = "/root/gpufree-data/output_yolo_dataset_table"
 
 # YOLO 类别映射（根据场景语义标签定义）
 # 参考 generate_dataset.py 中的语义标签类别
@@ -63,9 +63,10 @@ class_mapping = {
     "crate_stack": 1,   # 码垛整体
     "person": 2,        # 人体
     "rack": 3,          # 货架
-    "floor": 4,         # 地面
+    "table": 4,         # 工作台
+    # "floor": 4,         # 地面 (已移除，不采集)
 }
-# 注意: wall/ceiling/door 等忽略类别不在映射中
+# 注意: wall/ceiling/door/floor 等忽略类别不在映射中
 
 
 # ============================================================================
@@ -137,18 +138,18 @@ def capture_yolo_dataset():
             rep.modify.attribute("inputs:intensity", rep.distribution.uniform(400.0, 1200.0))
             rep.modify.attribute("inputs:color", rep.distribution.uniform((0.7, 0.7, 0.7), (1.0, 1.0, 1.0)))
 
-        # --- C. 材质色彩随机化 ---
-        crates = rep.get.prims(path_pattern="/World/Generated/Crate_new_*")
-        with crates:
-            rep.randomizer.color(colors=rep.distribution.uniform((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)))
+        # --- C. 材质色彩随机化 (已禁用) ---
+        # crates = rep.get.prims(path_pattern="/World/Generated/Crate_new_*")
+        # with crates:
+        #     rep.randomizer.color(colors=rep.distribution.uniform((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)))
 
-        # --- D. 码垛整体(crate_stack)材质色彩随机化 ---
+        # --- D. 码垛整体(crate_stack)材质色彩随机化 (已禁用) ---
         # Pallet_* 是码垛整体的父节点(Xform)，包含多个货箱子节点
         # 注意: Replicator path_pattern 不支持中间路径通配符，需逐个 Pallet 处理
-        for pallet_idx in range(5):  # 根据调试已知有 5 个 Pallet (0-4)
-            crate_in_pallet = rep.get.prims(path_pattern=f"/World/Generated/Pallet_{pallet_idx}/Crate_*")
-            with crate_in_pallet:
-                rep.randomizer.color(colors=rep.distribution.uniform((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)))
+        # for pallet_idx in range(5):  # 根据调试已知有 5 个 Pallet (0-4)
+        #     crate_in_pallet = rep.get.prims(path_pattern=f"/World/Generated/Pallet_{pallet_idx}/Crate_*")
+        #     with crate_in_pallet:
+        #         rep.randomizer.color(colors=rep.distribution.uniform((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)))
 
     print("[CheckPoint 9] ✅ 随机化图构建完成。")
 
